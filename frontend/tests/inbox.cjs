@@ -82,6 +82,7 @@ const server=http.createServer((req,res)=>{
   await page.getByRole('button',{name:'Добавить комментарий'}).click();
   await page.locator('.timeline').getByText('Позвонить вечером').waitFor();
   await page.getByRole('button',{name:'Переписка',exact:true}).click();
+  await page.waitForFunction(()=>document.title==='AEN CRM');
   if(process.env.QA_DIR)await page.screenshot({path:path.join(process.env.QA_DIR,'aen-deal.png'),fullPage:true});
   await page.keyboard.press('Escape');assert.equal(await page.locator('dialog[open]').count(),0);
   messages.push({id:messages.length+1,direction:'in',text:'Спасибо!',created_at:new Date().toISOString()});
