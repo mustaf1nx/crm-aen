@@ -4,7 +4,7 @@ import pg from 'pg';
 import pino from 'pino';
 import QRCode from 'qrcode';
 import makeWASocket,{initAuthCreds,BufferJSON,proto,DisconnectReason,jidNormalizedUser,downloadMediaMessage,normalizeMessageContent} from '@whiskeysockets/baileys';
-import {toEvent} from './events.mjs';
+import {toEvent,hasSavedSession} from './events.mjs';
 
 const secret=process.env.WA_BRIDGE_SECRET;
 if(!secret||!process.env.SECRET_KEY)throw Error('Bridge configuration missing');
@@ -43,6 +43,7 @@ async function connect(){
    if(update.connection==='close'){
     socket=null;qr=null;account=null;
     const code=update.lastDisconnect?.error?.output?.statusCode;
+    console.info('WhatsApp disconnected; code:',Number.isInteger(code)?code:'unknown');
     if(code===DisconnectReason.loggedOut){state='logged_out';await pool.query('DELETE FROM wa_auth');}
     else if(code===DisconnectReason.connectionReplaced){state='replaced';}
     else{state='reconnecting';clearTimeout(retry);retry=setTimeout(()=>{state='disconnected';connect().catch(()=>{state='error';});},5000);}
@@ -108,7 +109,7 @@ http.createServer(async(req,res)=>{
   send(404,{error:'Not found'});
  }catch{send(502,{error:'WhatsApp operation failed'});}
 }).listen(8090,'127.0.0.1');
-const existing=await get('creds');if(existing?.registered)await connect();
+const existing=await get('creds');if(hasSavedSession(existing))await connect();
 setInterval(()=>{if(state==='waiting')connect().catch(()=>{state='error';});},5000);
 for(const sig of ['SIGINT','SIGTERM'])process.on(sig,()=>{stopping=true;clearTimeout(retry);socket?.end(undefined);pool.end().finally(()=>process.exit(0));});
 console.info('WhatsApp bridge ready');

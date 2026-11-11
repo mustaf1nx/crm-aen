@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {toEvent} from './events.mjs';
+import {toEvent,hasSavedSession} from './events.mjs';
 const m={key:{remoteJid:'77010000000@s.whatsapp.net',id:'test'},message:{conversation:'Hello'},pushName:'Test'};
 test('personal messages, phone alternative and outgoing echo',()=>{
  assert.equal(toEvent(m,'77020000000').direction,'in');
@@ -15,4 +15,11 @@ test('exclude groups, broadcasts, protocol updates and missing account',()=>{
 test('attachments produce an explicit placeholder, wrapped text is unwrapped',()=>{
  assert.match(toEvent({...m,message:{imageMessage:{url:'unused'}}},'77020000000').text,/Вложение/);
  assert.equal(toEvent({...m,message:{ephemeralMessage:{message:{conversation:'Wrapped'}}}},'77020000000').text,'Wrapped');
+});
+
+test('restore QR sessions even when Baileys registered remains false',()=>{
+ assert.equal(hasSavedSession({registered:false,me:{id:'test-session'}}),true);
+ assert.equal(hasSavedSession({registered:true}),true);
+ assert.equal(hasSavedSession({registered:false}),false);
+ assert.equal(hasSavedSession(null),false);
 });

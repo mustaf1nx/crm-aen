@@ -12,3 +12,6 @@ export function toEvent(m,account){
  if(!text&&!media)return null;
  return {account,sender,mid:m.key.id,text:(text||(media?'[Вложение — откройте WhatsApp на телефоне]':'')).slice(0,10000),name:(m.pushName||'').slice(0,120),direction:m.key.fromMe?'out':'in'};
 }
+
+// QR pairing can persist me.id while registered stays false in Baileys 7.
+export const hasSavedSession=creds=>Boolean(creds?.registered||creds?.me?.id);
