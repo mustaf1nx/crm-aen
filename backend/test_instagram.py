@@ -34,6 +34,7 @@ class InstagramTests(unittest.TestCase):
             self.assertIn('text/html',page.headers['content-type'])
 
     def setUp(self):
+        self.enrich_patch=patch.object(m.features,'enrich');self.enrich_patch.start();self.addCleanup(self.enrich_patch.stop)
         m.Base.metadata.drop_all(m.engine)
         self.client = TestClient(m.app)
         self.client.__enter__()

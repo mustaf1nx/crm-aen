@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import pg from 'pg';
 import pino from 'pino';
 import QRCode from 'qrcode';
-import makeWASocket,{initAuthCreds,BufferJSON,proto,DisconnectReason,jidNormalizedUser} from '@whiskeysockets/baileys';
+import makeWASocket,{initAuthCreds,BufferJSON,proto,DisconnectReason,jidNormalizedUser,downloadMediaMessage,normalizeMessageContent} from '@whiskeysockets/baileys';
 import {toEvent} from './events.mjs';
 
 const secret=process.env.WA_BRIDGE_SECRET;
@@ -50,7 +50,20 @@ async function connect(){
   });
   s.ev.on('messages.upsert',async({messages,type})=>{
    if(type!=='notify'||socket!==s)return;
-   try{for(const m of messages){const event=toEvent(m,account);if(event)await queue(event);}}
+   try{for(const m of messages){const event=toEvent(m,account);if(event){
+     const body=normalizeMessageContent(m.message),media=body?.imageMessage||body?.videoMessage||body?.audioMessage||body?.documentMessage;
+     if(media){
+      try{
+       if(Number(media.fileLength||0)>16*1024*1024)throw Error('Too large');
+       const stream=await downloadMediaMessage(m,'stream',{}, {logger:pino({level:'silent'}),reuploadRequest:s.updateMediaMessage});
+       const chunks=[];let size=0;
+       for await(const chunk of stream){size+=chunk.length;if(size>16*1024*1024){stream.destroy();throw Error('Too large');}chunks.push(chunk);}
+       event.attachments=[{data:Buffer.concat(chunks).toString('base64'),mime:media.mimetype||'application/octet-stream',name:media.fileName||'Вложение'}];
+       if(event.text.startsWith('[Вложение'))event.text='';
+      }catch{event.text=(event.text.startsWith('[Вложение')?'':event.text)+' [Файл недоступен или больше 16 МБ — откройте WhatsApp]';}
+     }
+     await queue(event);
+    }}}
    catch{console.error('WhatsApp incoming event storage failed');process.exit(1);}
   });
  }catch{state='error';console.error('WhatsApp connection failed');}finally{starting=false;}
@@ -76,13 +89,20 @@ http.createServer(async(req,res)=>{
   if(req.url==='/status'&&req.method==='GET')return send(200,status());
   if(req.url==='/connect'&&req.method==='POST'){await connect();return send(200,status());}
   if(req.url==='/send'&&req.method==='POST'){
-   let body='';for await(const chunk of req){body+=chunk;if(body.length>20000)return send(413,{error:'Too large'});}
+   let body='';for await(const chunk of req){body+=chunk;if(body.length>24*1024*1024)return send(413,{error:'Too large'});}
    const data=JSON.parse(body);
    if(state!=='connected'||!socket||data.account!==account)return send(409,{error:'Not connected'});
-   if(!/^\d{5,25}@(s\.whatsapp\.net|lid)$/.test(data.jid)||typeof data.text!=='string'||!data.text.trim()||data.text.length>2000)return send(400,{error:'Invalid message'});
-   const sent=await socket.sendMessage(data.jid,{text:data.text});
+   if(!/^\d{5,25}@(s\.whatsapp\.net|lid)$/.test(data.jid)||typeof data.text!=='string'||(!data.media&&!data.text.trim())||data.text.length>2000)return send(400,{error:'Invalid message'});
+   let content={text:data.text};
+   if(data.media){
+    const bytes=Buffer.from(data.media.data,'base64'),mime=data.media.mime;
+    if(!bytes.length||bytes.length>16*1024*1024)return send(413,{error:'Too large'});
+    const type=mime.startsWith('image/')?'image':mime.startsWith('video/')?'video':mime.startsWith('audio/')?'audio':'document';
+    content={[type]:bytes,mimetype:mime,fileName:data.media.name,...(type==='audio'?{}:{caption:data.text})};
+   }
+   const sent=await socket.sendMessage(data.jid,content);
    if(!sent?.key.id)throw Error('No message id');
-   await queue({account,sender:data.jid,mid:sent.key.id,text:data.text,direction:'out',name:''});
+   await queue({account,sender:data.jid,mid:sent.key.id,text:data.text,direction:'out',name:'',asset_id:data.asset_id||null});
    return send(200,{id:sent.key.id});
   }
   send(404,{error:'Not found'});

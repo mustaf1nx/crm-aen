@@ -5,7 +5,7 @@ import json
 import logging
 from .webhook_security import signature_status
 import httpx
-from fastapi import Request, Query, Response
+from fastapi import Request, Query, Response, BackgroundTasks
 from sqlalchemy import UniqueConstraint
 from datetime import datetime, timedelta, timezone
 from contextlib import asynccontextmanager
@@ -202,7 +202,9 @@ def create_customer(data:CustomerIn,db:Session=Depends(get_db),user:User=Depends
 def leads(db:Session=Depends(get_db),user:User=Depends(current_user)):
     q=select(Lead).order_by(Lead.id.desc())
     if user.role!='admin':q=q.where(Lead.city_id==user.city_id)
-    return [lead_out(x,db) for x in db.scalars(q)]
+    rows=list(db.scalars(q));counts={}
+    for lid,purpose,count in db.execute(select(features.Asset.lead_id,features.Asset.purpose,func.count()).where(features.Asset.lead_id.in_([l.id for l in rows]),features.Asset.purpose!='chat').group_by(features.Asset.lead_id,features.Asset.purpose)): counts[(lid,purpose)]=count
+    return [{**lead_out(x,db),'receipt_count':counts.get((x.id,'receipt'),0),'product_count':counts.get((x.id,'product'),0)} for x in rows]
 def lead_out(x,db):
     customer=db.get(Customer,x.customer_id)
     return {'id':x.id,'customer_id':x.customer_id,'customer_name':customer.name if customer else '—','city_id':x.city_id,'manager_id':x.manager_id,'stage':x.stage,'source':x.source,'notes':x.notes,'refusal_reason':x.refusal_reason,'created_at':x.created_at.isoformat()}
@@ -263,7 +265,7 @@ def lead_activity(lead_id:int,db:Session=Depends(get_db),user:User=Depends(curre
     if not lead:raise HTTPException(404,'Лид не найден')
     city_access(user,lead.city_id)
     rows=db.execute(select(Audit,User.full_name).join(User,User.id==Audit.actor_id).where(
-        Audit.action.in_(['lead.stage','lead.update','lead.comment']),Audit.detail.startswith(f'{lead_id}: ')
+        Audit.action.in_(['lead.stage','lead.update','lead.comment','lead.file']),Audit.detail.startswith(f'{lead_id}: ')
     ).order_by(Audit.id.desc()).limit(200)).all()
     return [{'id':a.id,'action':a.action,'text':a.detail.split(': ',1)[1],'actor':name,'created_at':a.created_at.isoformat()} for a,name in rows]
 
@@ -315,7 +317,7 @@ IG_ACCESS_TOKEN=os.environ.get('IG_ACCESS_TOKEN','')
 IG_CITY_NAME=os.environ.get('IG_CITY_NAME','Семей')
 IG_GRAPH_VERSION=os.environ.get('IG_GRAPH_VERSION','v24.0')
 
-def ingest_instagram(db:Session, account_id:str, sender_id:str, body:str, external_id:str):
+def ingest_instagram(db:Session, account_id:str, sender_id:str, body:str, external_id:str, attachments=None):
     if not sender_id or not account_id: return False
     if external_id and db.scalar(select(InstagramMessage.id).where(InstagramMessage.external_id==external_id)):
         return False
@@ -330,7 +332,9 @@ def ingest_instagram(db:Session, account_id:str, sender_id:str, body:str, extern
         db.add(lead);db.flush()
         conv=InstagramConversation(account_id=account_id,sender_id=sender_id,city_id=city.id,customer_id=customer.id,lead_id=lead.id)
         db.add(conv);db.flush()
-    db.add(InstagramMessage(conversation_id=conv.id,external_id=external_id or None,direction='in',text=body or '[Вложение или неподдерживаемый тип сообщения]'))
+    msg=InstagramMessage(conversation_id=conv.id,external_id=external_id or None,direction='in',text=body or ('' if attachments else '[Неподдерживаемое сообщение]'))
+    db.add(msg);db.flush()
+    features.attach_incoming(db,msg,conv.lead_id,attachments or [])
     db.commit()
     return True
 
@@ -344,7 +348,7 @@ def verify_instagram(request:Request):
     raise HTTPException(403,'Verification failed')
 
 @app.post('/api/webhooks/instagram')
-async def instagram_webhook(request:Request):
+async def instagram_webhook(request:Request,background_tasks:BackgroundTasks):
     if not META_APP_SECRET: raise HTTPException(503,'App secret is not configured')
     raw=await request.body()
     signature=request.headers.get('x-hub-signature-256','')
@@ -367,26 +371,29 @@ async def instagram_webhook(request:Request):
                 recipient=str((event.get('recipient') or {}).get('id',''))
                 if IG_ACCOUNT_ID and account_id not in (IG_ACCOUNT_ID,IG_PAGE_ID) and recipient not in (IG_ACCOUNT_ID,IG_PAGE_ID): continue
                 if sender in (IG_ACCOUNT_ID,IG_PAGE_ID): continue
-                ingest_instagram(db,IG_ACCOUNT_ID or account_id,sender,str(message.get('text') or ''),str(message.get('mid') or '') )
+                ingest_instagram(db,IG_ACCOUNT_ID or account_id,sender,str(message.get('text') or ''),str(message.get('mid') or ''),[{'url':(a.get('payload') or {}).get('url',''),'mime':{'image':'image/jpeg','video':'video/mp4','audio':'audio/mpeg'}.get(a.get('type'),'application/octet-stream'),'name':a.get('type','Вложение')} for a in message.get('attachments',[])])
+    background_tasks.add_task(features.enrich)
     return {'ok':True}
 
 @app.get('/api/instagram/conversations')
 @app.get('/api/inbox/conversations')
-def instagram_conversations(db:Session=Depends(get_db),user:User=Depends(current_user)):
+def instagram_conversations(background_tasks:BackgroundTasks,db:Session=Depends(get_db),user:User=Depends(current_user)):
+    background_tasks.add_task(features.enrich)
     stmt=select(InstagramConversation).order_by(InstagramConversation.id.desc())
     if user.role!='admin': stmt=stmt.where(InstagramConversation.city_id==user.city_id)
+    rows=list(db.scalars(stmt));ids=[c.id for c in rows]
+    counts={r[0]:r for r in db.execute(select(InstagramMessage.conversation_id,func.count(),func.max(InstagramMessage.id)).where(InstagramMessage.conversation_id.in_(ids)).group_by(InstagramMessage.conversation_id))}
+    reads={r.conversation_id:r.last_message_id for r in db.scalars(select(InstagramReadState).where(InstagramReadState.user_id==user.id,InstagramReadState.conversation_id.in_(ids)))}
+    customers={r.id:r for r in db.scalars(select(Customer).where(Customer.id.in_([c.customer_id for c in rows])))}
+    lasts={r.id:r for r in db.scalars(select(InstagramMessage).where(InstagramMessage.id.in_([r[2] for r in counts.values()])))}
+    incoming={}
+    for cid,mid in db.execute(select(InstagramMessage.conversation_id,InstagramMessage.id).where(InstagramMessage.conversation_id.in_(ids),InstagramMessage.direction=='in')):
+        count,latest=incoming.get(cid,(0,0));incoming[cid]=(count+int(mid>reads.get(cid,0)),max(mid,latest))
     out=[]
-    for c in db.scalars(stmt):
-        customer=db.get(Customer,c.customer_id)
-        last=db.scalar(select(InstagramMessage).where(InstagramMessage.conversation_id==c.id).order_by(InstagramMessage.id.desc()))
-        read=db.get(InstagramReadState,(user.id,c.id))
-        base=select(InstagramMessage).where(InstagramMessage.conversation_id==c.id)
-        total=db.scalar(select(func.count()).select_from(base.subquery()))
-        incoming=base.where(InstagramMessage.direction=='in')
-        unread=db.scalar(select(func.count()).select_from(incoming.where(InstagramMessage.id>(read.last_message_id if read else 0)).subquery()))
-        latest_in=db.scalar(select(func.max(InstagramMessage.id)).where(InstagramMessage.conversation_id==c.id,InstagramMessage.direction=='in')) or 0
-        out.append({'id':c.id,'channel':'whatsapp' if c.account_id.startswith('wa:') else 'instagram','customer_name':customer.name if customer else 'Клиент','sender_id':c.sender_id,'city_id':c.city_id,'lead_id':c.lead_id,'last_message':last.text if last else '', 'last_direction':last.direction if last else '',
-                    'message_count':total,'unread_count':unread,'last_message_id':last.id if last else 0,'last_incoming_id':latest_in})
+    for c in rows:
+        customer=customers.get(c.customer_id);count=counts.get(c.id,(c.id,0,0));last=lasts.get(count[2]);unread,latest_in=incoming.get(c.id,(0,0))
+        out.append({'id':c.id,'channel':'whatsapp' if c.account_id.startswith('wa:') else 'instagram','customer_name':customer.name if customer else 'Клиент','sender_id':c.sender_id,'city_id':c.city_id,'lead_id':c.lead_id,'last_message':last.text or 'Вложение' if last else '', 'last_direction':last.direction if last else '', 'last_at':last.created_at.isoformat() if last else None,
+                    'message_count':count[1],'unread_count':unread,'last_message_id':last.id if last else 0,'last_incoming_id':latest_in})
     return sorted(out,key=lambda c:c['last_message_id'],reverse=True)
 
 class ReadIn(BaseModel): last_message_id:int=Field(gt=0)
@@ -419,11 +426,16 @@ def instagram_status(user:User=Depends(current_user)):
 
 @app.get('/api/instagram/conversations/{conversation_id}/messages')
 @app.get('/api/inbox/conversations/{conversation_id}/messages')
-def conversation_messages(conversation_id:int,db:Session=Depends(get_db),user:User=Depends(current_user)):
+def conversation_messages(conversation_id:int,before_id:int=0,db:Session=Depends(get_db),user:User=Depends(current_user)):
     conv=db.get(InstagramConversation,conversation_id)
     if not conv: raise HTTPException(404,'Диалог не найден')
     city_access(user,conv.city_id)
-    return [{'id':m.id,'direction':m.direction,'text':m.text,'created_at':m.created_at.isoformat()} for m in db.scalars(select(InstagramMessage).where(InstagramMessage.conversation_id==conversation_id).order_by(InstagramMessage.id))]
+    query=select(InstagramMessage).where(InstagramMessage.conversation_id==conversation_id)
+    if before_id: query=query.where(InstagramMessage.id<before_id)
+    rows=list(reversed(list(db.scalars(query.order_by(InstagramMessage.id.desc()).limit(200)))))
+    assets={}
+    for a in db.scalars(select(features.Asset).where(features.Asset.message_id.in_([r.id for r in rows]))): assets.setdefault(a.message_id,[]).append(features.media_out(a))
+    return [{'id':r.id,'direction':r.direction,'text':r.text,'created_at':r.created_at.isoformat(),'attachments':assets.get(r.id,[])} for r in rows]
 
 class ReplyIn(BaseModel): text:str=Field(min_length=1,max_length=2000)
 @app.post('/api/instagram/conversations/{conversation_id}/reply')
@@ -487,6 +499,8 @@ class WhatsAppEvent(BaseModel):
     text:str=Field(max_length=10000)
     name:str=Field(default='',max_length=120)
     direction:str=Field(default='in',pattern='^(in|out)$')
+    attachments:list[dict]=Field(default_factory=list,max_length=10)
+    asset_id:Optional[str]=None
 
 def ingest_whatsapp(db,data:WhatsAppEvent):
     # Existing conversation/message tables are shared; the account prefix namespaces channels.
@@ -496,7 +510,11 @@ def ingest_whatsapp(db,data:WhatsAppEvent):
         from sqlalchemy import text
         lock=int.from_bytes(hashlib.sha256(f'{account}:{data.sender}'.encode()).digest()[:8],signed=True)
         db.execute(text('SELECT pg_advisory_xact_lock(:key)'),{'key':lock})
-    if db.scalar(select(InstagramMessage.id).where(InstagramMessage.external_id==external)):return False
+    existing=db.scalar(select(InstagramMessage).where(InstagramMessage.external_id==external))
+    if existing:
+        conv=db.get(InstagramConversation,existing.conversation_id)
+        if data.asset_id: features.attach_incoming(db,existing,conv.lead_id,[{'asset_id':data.asset_id}]);db.commit()
+        return False
     conv=db.scalar(select(InstagramConversation).where(InstagramConversation.account_id==account,InstagramConversation.sender_id==data.sender))
     if not conv:
         if data.direction=='out':return False
@@ -511,7 +529,9 @@ def ingest_whatsapp(db,data:WhatsAppEvent):
         db.add(lead);db.flush()
         conv=InstagramConversation(account_id=account,sender_id=data.sender,city_id=city.id,customer_id=customer.id,lead_id=lead.id)
         db.add(conv);db.flush()
-    db.add(InstagramMessage(conversation_id=conv.id,external_id=external,direction=data.direction,text=data.text or '[Вложение — откройте WhatsApp на телефоне]'))
+    msg=InstagramMessage(conversation_id=conv.id,external_id=external,direction=data.direction,text=data.text)
+    db.add(msg);db.flush()
+    features.attach_incoming(db,msg,conv.lead_id,[{'asset_id':data.asset_id}] if data.asset_id else data.attachments)
     db.commit();return True
 
 @app.post('/api/internal/whatsapp/events')
@@ -521,6 +541,8 @@ async def whatsapp_event(request:Request,data:WhatsAppEvent,db:Session=Depends(g
         raise HTTPException(403,'Forbidden')
     ingest_whatsapp(db,data)
     return {'ok':True}
+
+from . import features
 
 # Railway serves the built frontend from the same origin as the API.
 if os.environ.get('STATIC_DIR'):
