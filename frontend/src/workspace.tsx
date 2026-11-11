@@ -38,7 +38,7 @@ function DealDetails({lead,customer,users,orders,onSaved,onOrder}:{lead:Row;cust
 function Activity({lead}:{lead:Row}){
  const [rows,setRows]=useState<Row[]>([]),[comment,setComment]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false);
  const refresh=async()=>{try{setRows(await api(`/leads/${lead.id}/activity`));}catch(e:any){setError(e.message);}};
- useEffect(()=>{void refresh();},[lead.id]);
+ useEffect(()=>{void refresh();window.addEventListener('aen-change',refresh);return()=>window.removeEventListener('aen-change',refresh);},[lead.id]);
  const send=async(e:React.FormEvent)=>{e.preventDefault();if(!comment.trim()||busy)return;setBusy(true);setError('');try{await api(`/leads/${lead.id}/comments`,'POST',{text:comment});setComment('');await refresh();}catch(e:any){setError(e.message);}finally{setBusy(false);}};
  const describe=(r:Row)=>{if(r.action!=='lead.stage')return r.text;return r.text.split(' -> ').map((s:string)=>stages.find(x=>x.id===s)?.label||s).join(' → ');};
  return <div className="activity"><form onSubmit={send}><label className="field"><span>Внутренний комментарий · виден сотрудникам</span><textarea placeholder="Что важно знать о клиенте?" value={comment} maxLength={2000} onChange={e=>setComment(e.target.value)}/></label><button className="secondary" disabled={busy||!comment.trim()}>Добавить комментарий</button></form>{error&&<div className="error">{error}</div>}<div className="timeline">{rows.map(r=><article key={r.id}><span className="timeline-dot"/><small>{r.actor} · {date(r.created_at)}</small><p>{describe(r)}</p></article>)}<article><span className="timeline-dot"/><small>{date(lead.created_at)}</small><p>Сделка создана · {channel(lead.source)}</p></article></div></div>;

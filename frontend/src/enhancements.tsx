@@ -35,7 +35,7 @@ export function useRealtime(token:string,onChange:()=>void){
    }catch{/* Fall back to periodic refresh while reconnecting. */}
    if(!stopped){setLive(false);timer=window.setTimeout(run,5000);}
   };
-  void run();const fallback=window.setInterval(()=>cb.current(),30000);
+  void run();const fallback=window.setInterval(()=>{cb.current();window.dispatchEvent(new Event('aen-change'));},30000);
   return()=>{stopped=true;controller.abort();window.clearTimeout(timer);window.clearInterval(fallback);};
  },[token]);
  return live;
