@@ -32,6 +32,7 @@ const server=http.createServer((req,res)=>{
    if(endpoint==='/api/me')data=currentUser;
    else if(endpoint==='/api/users')data=[{id:1,role:'admin',full_name:'Tester',active:true},{id:2,role:'manager',full_name:'Manager',city_id:1,active:true}];
    else if(endpoint.endsWith('/transfer')){transferCalls++;lead.manager_id=route.request().postDataJSON().manager_id;data=lead;}
+   else if(endpoint==='/api/audit')data={items:[{id:1,actor:'Tester',action:'lead.transfer',detail:'1: Передан сотруднику Manager',created_at:new Date().toISOString()}],next_cursor:null};
    else if(endpoint==='/api/cities')data=[{id:1,name:'Семей'}];
    else if(endpoint==='/api/leads')data=[lead];
    else if(endpoint==='/api/customers')data=[{id:1,name:'Тестовый клиент',city_id:1,notes:'Автоматически из Instagram Direct'},{id:2,name:'WhatsApp клиент',city_id:1,phone:'+77010000000'}];
@@ -184,9 +185,16 @@ const server=http.createServer((req,res)=>{
   const modal=await page.locator('dialog[open]').boundingBox();
   assert(modal.y+modal.height-composer.y-composer.height<55,'No empty space below composer');
   await page.getByRole('button',{name:'Закрыть переписку'}).click();
+  await page.getByRole('button',{name:'Недавние действия',exact:true}).click();
+  await page.getByText('1: Передан сотруднику Manager',{exact:true}).waitFor();
+  await page.getByLabel('Сотрудник журнала').selectOption('2');
+  await page.getByLabel('Тип действия').selectOption('message.send');
+  assert.equal(await page.getByRole('button',{name:'Сегодня',exact:true}).getAttribute('aria-pressed'),'true');
+  if(process.env.QA_DIR)await page.screenshot({path:path.join(process.env.QA_DIR,'aen-audit.png'),fullPage:true});
   lead.manager_id=1;currentUser={id:2,role:'manager',city_id:1,full_name:'Manager'};
   await page.reload();
   await page.locator('[data-lead-id="1"]').click();
+  assert.equal(await page.getByRole('button',{name:'Недавние действия',exact:true}).count(),0);
   await page.getByText('Переписка закрыта',{exact:true}).waitFor();
   assert.equal(await page.getByLabel('Ответ клиенту',{exact:true}).count(),0);
   assert.equal(await page.getByRole('log',{name:'Переписка'}).count(),0);
@@ -196,6 +204,7 @@ const server=http.createServer((req,res)=>{
   await page.reload();await page.locator('[data-lead-id="1"]').click();
   await page.getByLabel('Передать клиента',{exact:true}).selectOption('1');
   await page.getByRole('button',{name:'Передать',exact:true}).click();
+  assert.equal(await page.getByRole('button',{name:'Недавние действия',exact:true}).count(),0);
   await page.getByText('Переписка закрыта',{exact:true}).waitFor();
   assert.equal(transferCalls,1);assert.equal(lead.manager_id,1);
   assert.equal(await page.getByLabel('Ответ клиенту',{exact:true}).count(),0);

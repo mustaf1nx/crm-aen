@@ -89,3 +89,5 @@ input[type=date]::-webkit-calendar-picker-indicator,input[type=datetime-local]::
  .deal-dialog .chat-compose{margin-bottom:0}
 }
 @media(max-width:800px){.deal-dialog-inner{height:auto}.deal-dialog .deal-body{height:auto;min-height:0}.date-presets button{padding:8px 11px}.date-filter{gap:6px}}
+
+.audit-detail{white-space:pre-wrap;overflow-wrap:anywhere;min-width:220px;max-width:520px;line-height:1.6}.audit-table time{font-size:12px;color:inherit}.audit-table .customer-channel{background:#809c8715;border-radius:8px}

@@ -151,6 +151,24 @@ def city_access(user,city_id):
 
 def log(db,user,action,detail): db.add(Audit(actor_id=user.id,action=action,detail=detail))
 
+@app.get('/api/audit')
+def audit_log(actor_id:Optional[int]=None,action:str='',start:str='',end:str='',before:int=0,limit:int=Query(50,ge=1,le=100),db:Session=Depends(get_db),user:User=Depends(admin_only)):
+    q=select(Audit,User.full_name).outerjoin(User,User.id==Audit.actor_id)
+    try:
+        zone=timezone(timedelta(hours=5))
+        lo=datetime.strptime(start,'%Y-%m-%d').replace(tzinfo=zone).astimezone(timezone.utc) if start else None
+        hi=(datetime.strptime(end,'%Y-%m-%d').replace(tzinfo=zone)+timedelta(days=1)).astimezone(timezone.utc) if end else None
+        if lo and hi and lo>=hi:raise ValueError()
+    except ValueError:raise HTTPException(400,'Неверный период')
+    if actor_id is not None:q=q.where(Audit.actor_id==actor_id)
+    if action:q=q.where(Audit.action==action)
+    if lo:q=q.where(Audit.created_at>=lo)
+    if hi:q=q.where(Audit.created_at<hi)
+    if before:q=q.where(Audit.id<before)
+    rows=db.execute(q.order_by(Audit.id.desc()).limit(limit+1)).all()
+    items=[{'id':a.id,'actor_id':a.actor_id,'actor':name or 'Удалённый сотрудник','action':a.action,'detail':a.detail,'created_at':a.created_at.replace(tzinfo=timezone.utc).isoformat() if a.created_at.tzinfo is None else a.created_at.isoformat()} for a,name in rows[:limit]]
+    return {'items':items,'next_cursor':items[-1]['id'] if len(rows)>limit else None}
+
 class LoginIn(BaseModel): username:str; password:str
 class UserIn(BaseModel): username:str=Field(min_length=3); password:str=Field(min_length=12); full_name:str; city_id:Optional[int]=None; role:str='manager'
 class CustomerIn(BaseModel): name:str=Field(min_length=1); city_id:int; phone:Optional[str]=None; instagram:Optional[str]=None; notes:Optional[str]=None
@@ -168,6 +186,7 @@ def health(db:Session=Depends(get_db)):
 def login(data:LoginIn,db:Session=Depends(get_db)):
     user=db.scalar(select(User).where(User.username==data.username))
     if not user or not user.active or not hasher.verify(data.password,user.password_hash): raise HTTPException(401,'Неверный логин или пароль')
+    log(db,user,'auth.login','Вход в CRM');db.commit()
     token=jwt.encode({'sub':str(user.id),'exp':datetime.now(timezone.utc)+timedelta(hours=8)},SECRET_KEY,algorithm='HS256')
     return {'access_token':token,'user':user_out(user)}
 def user_out(u): return {'id':u.id,'username':u.username,'full_name':u.full_name,'role':u.role,'city_id':u.city_id,'active':u.active}
@@ -496,6 +515,7 @@ async def reply_instagram(conversation_id:int,data:ReplyIn,db:Session=Depends(ge
     owned_lead(db,conv.lead_id,user,claim=True)
     if conv.account_id.startswith('wa:'):
         result=await whatsapp_bridge('send',{'account':conv.account_id[3:],'jid':conv.sender_id,'text':data.text})
+        log(db,user,'message.send',f'{conv.lead_id}: Отправлено сообщение WhatsApp')
         ingest_whatsapp(db,WhatsAppEvent(account=conv.account_id[3:],sender=conv.sender_id,mid=result['id'],text=data.text,direction='out'))
         db.commit()
         return {'ok':True}
@@ -510,6 +530,7 @@ async def reply_instagram(conversation_id:int,data:ReplyIn,db:Session=Depends(ge
         response.raise_for_status()
     except httpx.HTTPError as exc:
         raise HTTPException(502,'Meta не приняла сообщение; проверьте токен, права и окно переписки') from exc
+    log(db,user,'message.send',f'{conv.lead_id}: Отправлено сообщение Instagram')
     db.add(InstagramMessage(conversation_id=conv.id,direction='out',text=data.text,external_id=(response.json().get('message_id') or None)))
     db.commit()
     return {'ok':True}

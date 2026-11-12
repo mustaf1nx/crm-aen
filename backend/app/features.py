@@ -157,6 +157,7 @@ async def _send_media(cid,body,request,db,user):
     kind=a.mime.split('/')[0]
     if c.account_id.startswith('wa:'):
         result=await m.whatsapp_bridge('send',{'account':c.account_id[3:],'jid':c.sender_id,'text':body.text,'media':{'data':base64.b64encode(a.data).decode(),'mime':a.mime,'name':a.name},'asset_id':a.id})
+        m.log(db,user,'message.media',f'{c.lead_id}: Отправлено вложение WhatsApp ({kind})')
         m.ingest_whatsapp(db,m.WhatsAppEvent(account=c.account_id[3:],sender=c.sender_id,mid=result['id'],text=body.text,direction='out',asset_id=a.id))
         db.commit()
     else:
@@ -170,6 +171,7 @@ async def _send_media(cid,body,request,db,user):
                 r=await client.post(f'https://{host}/{m.IG_GRAPH_VERSION}/{c.account_id}/messages',headers={'Authorization':'Bearer '+m.IG_ACCESS_TOKEN},json={'recipient':{'id':c.sender_id},'message':{'attachment':{'type':kind,'payload':{'url':url}}}})
             r.raise_for_status()
         except httpx.HTTPError: raise HTTPException(502,'Meta не приняла файл. Проверьте формат, размер и окно ответа.')
+        m.log(db,user,'message.media',f'{c.lead_id}: Отправлено вложение Instagram ({kind})')
         msg=m.InstagramMessage(conversation_id=c.id,direction='out',text='',external_id=r.json().get('message_id'))
         db.add(msg);db.flush();a.message_id=msg.id;db.commit()
     return {'ok':True}
