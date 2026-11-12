@@ -1,5 +1,5 @@
 import asyncio, base64, hashlib, hmac, os, re, threading, time, uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
 from urllib.parse import urlparse
 import httpx
 from fastapi import Depends, HTTPException, Request, Response, BackgroundTasks
@@ -22,6 +22,12 @@ class Asset(m.Base):
     ready=column_property(data.is_not(None))
     remote:Mapped[str|None]=mapped_column(Text,nullable=True)
     created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=lambda:datetime.now(timezone.utc))
+class MediaRetry(m.Base):
+    __tablename__='media_download_retries'
+    asset_id:Mapped[str]=mapped_column(ForeignKey('media_assets.id'),primary_key=True)
+    attempts:Mapped[int]=mapped_column(Integer,default=0)
+    retry_at:Mapped[datetime]=mapped_column(DateTime(timezone=True))
+
 class Profile(m.Base):
     __tablename__='instagram_profiles'
     conversation_id:Mapped[int]=mapped_column(ForeignKey('instagram_conversations.id'),primary_key=True)
@@ -44,7 +50,8 @@ def notify_changes(db):
     if db.info.pop('changed',False):
         _revision+=1;_revision_label=db.info.pop('label','')
 @event.listens_for(Session,'after_rollback')
-def clear_changes(db): db.info.pop('changed',None)
+def clear_changes(db):
+    db.info.pop('changed',None);db.info.pop('label',None)
 
 @m.app.get('/api/events')
 async def events(request:Request,user=Depends(m.current_user),db=Depends(m.get_db)):
@@ -77,7 +84,7 @@ def validate_file(data,mime):
     if not ok: raise HTTPException(400,'Поддерживаются JPEG, PNG, WebP, MP4, M4A, MP3, OGG, WAV и PDF')
 
 def media_out(a):
-    token=m.jwt.encode({'sub':a.id,'aud':'media','exp':datetime.now(timezone.utc)+timedelta(minutes=30)},m.SECRET_KEY,algorithm='HS256')
+    token=m.jwt.encode({'sub':a.id,'aud':'media','exp':datetime.fromtimestamp((int(time.time())//900+3)*900,timezone.utc)},m.SECRET_KEY,algorithm='HS256')
     return {'ready':bool(a.ready),'pending':bool(a.remote),'id':a.id,'name':a.name,'mime':a.mime,'purpose':a.purpose,'url':f'/api/media/{a.id}?ticket={token}','created_at':a.created_at.isoformat()}
 
 @m.app.get('/api/media/{asset_id}')
@@ -91,9 +98,14 @@ def get_media(asset_id:str,ticket:str,request:Request,db=Depends(m.get_db)):
     data=a.data; headers={'Cache-Control':'private, max-age=60','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; sandbox",'Accept-Ranges':'bytes'}
     r=request.headers.get('range','')
     if r:
-        match=re.fullmatch(r'bytes=(\d+)-(\d*)',r)
-        if not match: raise HTTPException(416,'Invalid range')
-        start=int(match[1]);end=min(int(match[2]) if match[2] else len(data)-1,len(data)-1)
+        match=re.fullmatch(r'bytes=(\d*)-(\d*)',r)
+        if not match or not any(match.groups()): raise HTTPException(416,'Invalid range')
+        if not match[1]:
+            count=int(match[2])
+            if count<=0:raise HTTPException(416,'Invalid range')
+            start=max(0,len(data)-count);end=len(data)-1
+        else:
+            start=int(match[1]);end=min(int(match[2]) if match[2] else len(data)-1,len(data)-1)
         if start>end: raise HTTPException(416,'Invalid range')
         headers['Content-Range']=f'bytes {start}-{end}/{len(data)}'
         return Response(data[start:end+1],status_code=206,media_type=a.mime,headers=headers)
@@ -193,7 +205,10 @@ def enrich():
                             customer.instagram='@'+username;p.username=username;p.retry_at=now+timedelta(days=1)
                     except (httpx.HTTPError,ValueError,TypeError): pass
                     db.commit()
-            for a in db.scalars(select(Asset).where(Asset.remote!=None).limit(10)):
+            for a in db.scalars(select(Asset).outerjoin(MediaRetry,MediaRetry.asset_id==Asset.id).where(Asset.remote!=None,(MediaRetry.retry_at==None)|(MediaRetry.retry_at<now)).limit(10)):
+                retry=db.get(MediaRetry,a.id) or MediaRetry(asset_id=a.id,attempts=0)
+                retry.attempts+=1;retry.retry_at=now+timedelta(minutes=retry.attempts);db.add(retry)
+                complete=False
                 try:
                     if not safe_remote(a.remote): continue
                     with client.stream('GET',a.remote) as r:
@@ -202,10 +217,11 @@ def enrich():
                             data.extend(chunk)
                             if len(data)>MAX_FILE: raise ValueError()
                         mime=r.headers.get('content-type','').split(';')[0];validate_file(data,mime)
-                        a.data=bytes(data);a.mime=mime
+                        a.data=bytes(data);a.mime=mime;complete=True
                 except (httpx.HTTPError,ValueError,HTTPException): pass
-                # Do not endlessly re-fetch expired/unsupported links.
-                a.remote=None;db.commit()
+                # Retry transient CDN failures, then stop after three attempts.
+                if complete or retry.attempts>=3: a.remote=None
+                db.commit()
     finally: _profile_lock.release()
 
 @m.app.post('/api/inbox/conversations/{cid}/unread')
@@ -222,8 +238,9 @@ def unread(cid:int,db=Depends(m.get_db),user=Depends(m.current_user)):
 @m.app.get('/api/analytics')
 def analytics(start:str='',end:str='',city_id:int|None=None,db=Depends(m.get_db),user=Depends(m.current_user)):
     try:
-        lo=datetime.fromisoformat(start).replace(tzinfo=timezone.utc) if start else None
-        hi=datetime.fromisoformat(end).replace(tzinfo=timezone.utc)+timedelta(days=1) if end else None
+        lo=datetime.combine(date.fromisoformat(start),datetime.min.time(),timezone.utc) if start else None
+        hi=datetime.combine(date.fromisoformat(end),datetime.min.time(),timezone.utc)+timedelta(days=1) if end else None
+        if lo and hi and lo>=hi: raise ValueError()
     except ValueError: raise HTTPException(400,'Неверная дата')
     ls=select(m.Lead);osq=select(m.Order)
     city=city_id if user.role=='admin' else user.city_id
@@ -245,9 +262,12 @@ def analytics(start:str='',end:str='',city_id:int|None=None,db=Depends(m.get_db)
         c=channels.setdefault(l.source,{'leads':0,'won':0});c['leads']+=1;c['won']+=l.stage=='success'
     # First manager reply per conversation, within selected lead cohort.
     convs=list(db.scalars(select(m.InstagramConversation).where(m.InstagramConversation.lead_id.in_([l.id for l in leads])))) if leads else []
-    waits=[];unanswered=0
+    waits=[];unanswered=0;messages={}
+    if convs:
+        for msg in db.scalars(select(m.InstagramMessage).where(m.InstagramMessage.conversation_id.in_([c.id for c in convs])).order_by(m.InstagramMessage.id)):
+            messages.setdefault(msg.conversation_id,[]).append(msg)
     for c in convs:
-        rows=list(db.scalars(select(m.InstagramMessage).where(m.InstagramMessage.conversation_id==c.id).order_by(m.InstagramMessage.id)))
+        rows=messages.get(c.id,[])
         first=next((x for x in rows if x.direction=='in'),None)
         reply=next((x for x in rows if first and x.direction=='out' and x.id>first.id),None)
         if reply: waits.append(max(0,(reply.created_at-first.created_at).total_seconds()/60))

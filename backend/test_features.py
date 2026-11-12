@@ -108,3 +108,48 @@ class FeaturesTests(unittest.TestCase):
         self.assertEqual(captured[0]['message']['attachment']['type'],'image')
         self.assertIn('/api/media/',captured[0]['message']['attachment']['payload']['url'])
         self.assertEqual(len(self.client.get('/api/inbox/conversations/1/messages',headers=h).json()[-1]['attachments']),1)
+    def test_validation_and_stable_media_links(self):
+        self.post(self.payload());h=self.login()
+        self.assertEqual(self.client.get('/api/analytics?start=2026-11-12&end=2026-11-01',headers=h).status_code,400)
+        self.assertEqual(self.client.post('/api/leads',json={'customer_id':1,'city_id':1,'manager_id':9999},headers=h).status_code,400)
+        self.assertEqual(self.client.post('/api/customers',json={'name':'  ','city_id':1},headers=h).status_code,400)
+        a=self.client.post('/api/leads/1/files?name=photo.jpg',content=b'\xff\xd8\xffphoto',headers={**h,'Content-Type':'image/jpeg'}).json()
+        with m.SessionLocal() as db:
+            asset=db.get(f.Asset,a['id'])
+            with patch.object(f.time,'time',return_value=1800000010): first=f.media_out(asset)['url']
+            with patch.object(f.time,'time',return_value=1800000015): second=f.media_out(asset)['url']
+            self.assertEqual(first,second)
+        r=self.client.get(a['url'],headers={'Range':'bytes=-3'})
+        self.assertEqual((r.status_code,r.content),(206,b'oto'))
+        self.assertEqual(self.client.get(a['url'],headers={'Range':'bytes=-0'}).status_code,416)
+
+    def test_transient_media_error_retries_then_completes(self):
+        self.post(self.payload());self.enrich_patch.stop()
+        with m.SessionLocal() as db:
+            a=f.Asset(lead_id=1,message_id=1,name='photo.jpg',mime='image/jpeg',remote='https://test.cdninstagram.com/photo')
+            db.add(a);db.commit();aid=a.id
+        class Download:
+            headers={'content-type':'image/jpeg'}
+            def __enter__(self):return self
+            def __exit__(self,*args):pass
+            def raise_for_status(self):pass
+            def iter_bytes(self):yield b'\xff\xd8\xffphoto'
+        class Client:
+            calls=0
+            def __init__(self,**kw):pass
+            def __enter__(self):return self
+            def __exit__(self,*args):pass
+            def stream(self,*args):
+                Client.calls+=1
+                if Client.calls==1:raise httpx.ReadTimeout('test')
+                return Download()
+        with patch.object(m,'IG_ACCESS_TOKEN',''),patch.object(f.httpx,'Client',Client):
+            f.enrich();f.enrich()
+            self.assertEqual(Client.calls,1)
+            with m.SessionLocal() as db:
+                self.assertIsNotNone(db.get(f.Asset,aid).remote)
+                db.get(f.MediaRetry,aid).retry_at=m.datetime.now(m.timezone.utc)-m.timedelta(minutes=1);db.commit()
+            f.enrich()
+        with m.SessionLocal() as db:
+            a=db.get(f.Asset,aid)
+            self.assertTrue(a.ready);self.assertIsNone(a.remote)

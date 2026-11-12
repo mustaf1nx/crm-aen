@@ -196,6 +196,7 @@ def customer_out(x):return {'id':x.id,'name':x.name,'phone':x.phone,'instagram':
 @app.post('/api/customers',status_code=201)
 def create_customer(data:CustomerIn,db:Session=Depends(get_db),user:User=Depends(current_user)):
     city_access(user,data.city_id)
+    if not data.name.strip():raise HTTPException(400,'Укажите имя клиента')
     if not db.get(City,data.city_id):raise HTTPException(400,'Город не найден')
     obj=Customer(**data.model_dump());db.add(obj);db.flush();log(db,user,'customer.create',str(obj.id));db.commit();return customer_out(obj)
 @app.get('/api/leads')
@@ -203,6 +204,7 @@ def leads(db:Session=Depends(get_db),user:User=Depends(current_user)):
     q=select(Lead).order_by(Lead.id.desc())
     if user.role!='admin':q=q.where(Lead.city_id==user.city_id)
     rows=list(db.scalars(q));counts={}
+    customer_cache={c.id:c for c in db.scalars(select(Customer).where(Customer.id.in_([l.customer_id for l in rows])))}
     for lid,purpose,count in db.execute(select(features.Asset.lead_id,features.Asset.purpose,func.count()).where(features.Asset.lead_id.in_([l.id for l in rows]),features.Asset.purpose!='chat').group_by(features.Asset.lead_id,features.Asset.purpose)): counts[(lid,purpose)]=count
     return [{**lead_out(x,db),'receipt_count':counts.get((x.id,'receipt'),0),'product_count':counts.get((x.id,'product'),0)} for x in rows]
 def lead_out(x,db):
@@ -215,6 +217,7 @@ def create_lead(data:LeadIn,db:Session=Depends(get_db),user:User=Depends(current
     if not customer or customer.city_id!=data.city_id:raise HTTPException(400,'Клиент не найден в городе')
     if data.source not in ('manual','whatsapp','instagram','offline'):raise HTTPException(400,'Недопустимый источник')
     manager=db.get(User,data.manager_id) if data.manager_id else None
+    if data.manager_id is not None and manager is None:raise HTTPException(400,'Менеджер не найден')
     if manager and (not manager.active or (manager.role!='admin' and manager.city_id!=data.city_id)):raise HTTPException(400,'Менеджер не подходит')
     obj=Lead(**data.model_dump());db.add(obj);db.flush();log(db,user,'lead.create',str(obj.id));db.commit();return lead_out(obj,db)
 @app.patch('/api/leads/{lead_id}/stage')
@@ -273,9 +276,11 @@ def lead_activity(lead_id:int,db:Session=Depends(get_db),user:User=Depends(curre
 def orders(db:Session=Depends(get_db),user:User=Depends(current_user)):
     q=select(Order).order_by(Order.id.desc())
     if user.role!='admin':q=q.where(Order.city_id==user.city_id)
-    return [order_out(x,db) for x in db.scalars(q)]
-def order_out(o,db):
-    items=db.scalars(select(OrderItem).where(OrderItem.order_id==o.id)).all()
+    rows=list(db.scalars(q));items={}
+    for item in db.scalars(select(OrderItem).where(OrderItem.order_id.in_([o.id for o in rows]))):items.setdefault(item.order_id,[]).append(item)
+    return [order_out(x,db,items.get(x.id,[])) for x in rows]
+def order_out(o,db,items=None):
+    if items is None:items=db.scalars(select(OrderItem).where(OrderItem.order_id==o.id)).all()
     return {'id':o.id,'lead_id':o.lead_id,'city_id':o.city_id,'status':o.status,'discount':o.discount,'total':max(0,sum(x.quantity*x.price for x in items)-o.discount),'items':[{'name':x.name,'size':x.size,'color':x.color,'quantity':x.quantity,'price':x.price} for x in items]}
 @app.post('/api/orders',status_code=201)
 def create_order(data:OrderIn,db:Session=Depends(get_db),user:User=Depends(current_user)):
@@ -283,6 +288,7 @@ def create_order(data:OrderIn,db:Session=Depends(get_db),user:User=Depends(curre
     lead=db.get(Lead,data.lead_id)
     if not lead or lead.city_id!=data.city_id:raise HTTPException(400,'Лид не найден в городе')
     if data.status not in ('pending','paid','cancelled'):raise HTTPException(400,'Недопустимый статус')
+    if any(not x.name.strip() for x in data.items):raise HTTPException(400,'Укажите название товара')
     if data.discount>sum(x.quantity*x.price for x in data.items):raise HTTPException(400,'Скидка больше суммы')
     obj=Order(lead_id=data.lead_id,city_id=data.city_id,status=data.status,discount=data.discount)
     db.add(obj);db.flush()
@@ -304,8 +310,8 @@ def stats(db:Session=Depends(get_db),user:User=Depends(current_user)):
         orders_q=orders_q.where(Order.city_id==user.city_id)
     lead_rows=db.scalars(leads_q).all();order_rows=db.scalars(orders_q).all()
     paid=[x for x in order_rows if x.status=='paid']
-    revenue=0
-    for x in paid:revenue+=order_out(x,db)['total']
+    totals=dict(db.execute(select(OrderItem.order_id,func.sum(OrderItem.quantity*OrderItem.price)).where(OrderItem.order_id.in_([o.id for o in paid])).group_by(OrderItem.order_id)).all())
+    revenue=sum(max(0,totals.get(o.id,0)-o.discount) for o in paid)
     return {'leads':len(lead_rows),'success':sum(x.stage=='success' for x in lead_rows),'refusal':sum(x.stage=='refusal' for x in lead_rows),'orders':len(order_rows),'paid_orders':len(paid),'revenue':revenue}
 
 # Instagram messaging integration: webhook events are verified before storage.

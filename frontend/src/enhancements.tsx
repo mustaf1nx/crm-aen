@@ -9,11 +9,12 @@ export async function uploadFile(lead:number,file:File,purpose='chat'):Promise<M
 }
 export function MediaView({file}:{file:Media}){
  const [failed,setFailed]=useState(false);
+ const loaded=()=>window.dispatchEvent(new Event('aen-media-ready'));
  useEffect(()=>{setFailed(false);},[file.url,file.ready]);
  if(file.ready===false&&file.pending)return <small role="status">Загружаем вложение… Оно появится автоматически.</small>;
  if(file.ready===false)return <small>Не удалось получить файл из мессенджера.</small>;
  if(failed)return <button className="text-link" onClick={()=>setFailed(false)}>Повторить загрузку файла</button>;
- return <div className="media-preview">{file.mime.startsWith('image/')?<a href={file.url} target="_blank" rel="noreferrer"><img loading="lazy" src={file.url} alt={file.name} onError={()=>setFailed(true)}/></a>:file.mime.startsWith('video/')?<video controls preload="metadata" src={file.url} onError={()=>setFailed(true)}/>:file.mime.startsWith('audio/')?<audio controls preload="metadata" src={file.url} onError={()=>setFailed(true)}/>:<a href={file.url} target="_blank" rel="noreferrer">📄 {file.name}</a>}</div>;
+ return <div className="media-preview">{file.mime.startsWith('image/')?<a href={file.url} target="_blank" rel="noreferrer"><img loading="lazy" onLoad={loaded} src={file.url} alt={file.name} onError={()=>setFailed(true)}/></a>:file.mime.startsWith('video/')?<video onLoadedMetadata={loaded} controls preload="metadata" src={file.url} onError={()=>setFailed(true)}/>:file.mime.startsWith('audio/')?<audio controls preload="metadata" src={file.url} onError={()=>setFailed(true)}/>:<a href={file.url} target="_blank" rel="noreferrer">📄 {file.name}</a>}</div>;
 }
 export function DealFiles({lead}:{lead:number}){
  const [files,setFiles]=useState<Media[]>([]),[purpose,setPurpose]=useState('product'),[error,setError]=useState(''),[busy,setBusy]=useState(false);
@@ -25,21 +26,26 @@ export function useRealtime(token:string,onChange:()=>void){
  const cb=useRef(onChange);cb.current=onChange;
  const [live,setLive]=useState(false);
  useEffect(()=>{
-  if(!token)return;
-  const controller=new AbortController();let timer:number|undefined,stopped=false;
+  setLive(false);if(!token)return;
+  const controller=new AbortController();let retry:number|undefined,debounce:number|undefined,stopped=false;
+  const update=()=>{if(stopped)return;cb.current();window.dispatchEvent(new Event('aen-change'));};
   const run=async()=>{
    try{
     const r=await fetch('/api/events',{headers:{Authorization:'Bearer '+token},signal:controller.signal});
     if(!r.ok||!r.headers.get('content-type')?.includes('text/event-stream'))throw Error();
-    setLive(true);const reader=r.body!.getReader(),decoder=new TextDecoder();let buffer='',first=true;
+    if(stopped)return;setLive(true);const reader=r.body!.getReader(),decoder=new TextDecoder();let buffer='',first=true;
     while(!stopped){const chunk=await reader.read();if(chunk.done)break;buffer+=decoder.decode(chunk.value,{stream:true});let end;
-     while((end=buffer.indexOf('\n\n'))>=0){const msg=buffer.slice(0,end);buffer=buffer.slice(end+2);if(msg.startsWith('data:')){try{const event=JSON.parse(msg.slice(5));if(!first&&event.label)window.dispatchEvent(new CustomEvent('aen-notice',{detail:event.label}));first=false;}catch{}window.clearTimeout(timer);timer=window.setTimeout(()=>{cb.current();window.dispatchEvent(new Event('aen-change'));},200);}}
+     while((end=buffer.indexOf('\n\n'))>=0){const msg=buffer.slice(0,end);buffer=buffer.slice(end+2);if(msg.startsWith('data:')){
+      try{const event=JSON.parse(msg.slice(5));if(!first&&event.label)window.dispatchEvent(new CustomEvent('aen-notice',{detail:event.label}));first=false;}catch{}
+      // Throttle, not debounce: continuous events must not starve refresh.
+      if(debounce===undefined)debounce=window.setTimeout(()=>{debounce=undefined;update();},200);
+     }}
     }
-   }catch{/* Fall back to periodic refresh while reconnecting. */}
-   if(!stopped){setLive(false);timer=window.setTimeout(run,5000);}
+   }catch{/* Retry without discarding the active screen. */}
+   if(!stopped){setLive(false);retry=window.setTimeout(run,5000);}
   };
-  void run();const fallback=window.setInterval(()=>{cb.current();window.dispatchEvent(new Event('aen-change'));},30000);
-  return()=>{stopped=true;controller.abort();window.clearTimeout(timer);window.clearInterval(fallback);};
+  void run();const fallback=window.setInterval(update,30000);
+  return()=>{stopped=true;controller.abort();window.clearTimeout(retry);window.clearTimeout(debounce);window.clearInterval(fallback);};
  },[token]);
  return live;
 }

@@ -1,5 +1,5 @@
 import {MediaView,uploadFile,accept,Media} from './enhancements';
-import {useCallback,useEffect,useRef,useState} from 'react';
+import {useCallback,useEffect,useLayoutEffect,useRef,useState} from 'react';
 
 export type Conversation={id:number;channel?:string;lead_id:number;customer_name:string;city_id:number;last_message:string;message_count:number;unread_count:number;last_incoming_id:number;last_direction?:string;last_at?:string};
 type Message={id:number;direction:string;text:string;created_at:string;attachments?:Media[]};
@@ -7,7 +7,7 @@ export const api=async(path:string,method='GET',body?:Record<string,any>)=>{
  const token=sessionStorage.getItem('aen_token');
  const r=await fetch('/api'+path,{method,headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},body:body?JSON.stringify(body):undefined});
  const data=await r.json().catch(()=>({}));
- if(!r.ok)throw new Error(typeof data.detail==='string'?data.detail:'Ошибка запроса');
+ if(!r.ok){const error=new Error(typeof data.detail==='string'?data.detail:'Ошибка запроса') as Error&{status:number};error.status=r.status;throw error;}
  return data;
 };
 
@@ -59,7 +59,7 @@ export function ChatPanel({conversation,onRead}:{conversation:Conversation;onRea
  const [reply,setReply]=useState('');
  const [file,setFile]=useState<File|null>(null),[uploaded,setUploaded]=useState<Media|null>(null),[manualUnread,setManualUnread]=useState(false);
  const unreadRef=useRef(false);
- const draftKey='aen-draft-'+conversation.id;
+ const draftKey='aen-draft-'+(sessionStorage.getItem('aen_token')||'').slice(-16)+'-'+conversation.id;
  useEffect(()=>{setReply(sessionStorage.getItem(draftKey)||'');},[draftKey]);
  const editReply=(v:string)=>{setReply(v);sessionStorage.setItem(draftKey,v);};
  const [error,setError]=useState('');
@@ -68,7 +68,9 @@ export function ChatPanel({conversation,onRead}:{conversation:Conversation;onRea
  const merge=(rows:Message[])=>setMessages(old=>Array.from(new Map([...old,...rows].map(m=>[m.id,m])).values()).sort((a,b)=>a.id-b.id));
  const [sending,setSending]=useState(false);
  const bottom=useRef<HTMLDivElement>(null);
+ const restoreScroll=useRef<{height:number;top:number}|null>(null);
  const scrollBox=useRef<HTMLDivElement>(null);const atBottom=useRef(true);
+ useEffect(()=>{const loaded=()=>{if(atBottom.current)bottom.current?.scrollIntoView({block:'nearest'});};window.addEventListener('aen-media-ready',loaded);return()=>window.removeEventListener('aen-media-ready',loaded);},[]);
  const refreshRef=useRef<()=>Promise<void>>(async()=>{});
  const onReadRef=useRef(onRead);onReadRef.current=onRead;
  useEffect(()=>{
@@ -93,6 +95,7 @@ export function ChatPanel({conversation,onRead}:{conversation:Conversation;onRea
   document.addEventListener('visibilitychange',visible);window.addEventListener('aen-change',visible);
   return()=>{alive=false;window.clearInterval(interval);document.removeEventListener('visibilitychange',visible);window.removeEventListener('aen-change',visible);};
  },[conversation.id]);
+ useLayoutEffect(()=>{const box=scrollBox.current,old=restoreScroll.current;if(box&&old){box.scrollTop=old.top+box.scrollHeight-old.height;restoreScroll.current=null;}},[messages]);
  useEffect(()=>{if(atBottom.current)bottom.current?.scrollIntoView({block:'nearest'});},[messages.length]);
  const send=async(e:React.FormEvent)=>{
   e.preventDefault();if(sending||(!reply.trim()&&!file))return;
@@ -106,8 +109,8 @@ export function ChatPanel({conversation,onRead}:{conversation:Conversation;onRea
  };
  return <div className="chat-content">
   <div className="chat-tools"><button className="text-link" onClick={async()=>{try{unreadRef.current=true;await api(`/inbox/conversations/${conversation.id}/unread`,'POST',{});setManualUnread(true);await onReadRef.current();}catch(e:any){unreadRef.current=false;setError(e.message);}}}>{manualUnread?'Отмечен непрочитанным':'Отметить непрочитанным'}</button><span>Личный статус в CRM</span></div><p className="muted">Всего сообщений: {conversation.message_count} · {conversation.channel==='whatsapp'?'WhatsApp':'Instagram Direct'}</p>
-  <div ref={scrollBox} onScroll={()=>{const el=scrollBox.current;if(el)atBottom.current=el.scrollHeight-el.scrollTop-el.clientHeight<70;}} className="chat-messages" role="log" aria-label="Переписка">
-   {more&&<button className="secondary" disabled={olderBusy} onClick={async()=>{setOlderBusy(true);try{const rows=await api(`/inbox/conversations/${conversation.id}/messages?before_id=${messages[0]?.id||0}`);atBottom.current=false;merge(rows);setMore(rows.length===200);}catch(e:any){setError(e.message);}finally{setOlderBusy(false);}}}>{olderBusy?'Загрузка…':'Ранние сообщения'}</button>}
+  <div ref={scrollBox} onScroll={()=>{const el=scrollBox.current;if(el){const wasBottom=atBottom.current;atBottom.current=el.scrollHeight-el.scrollTop-el.clientHeight<70;if(!wasBottom&&atBottom.current)void refreshRef.current();}}} className="chat-messages" role="log" aria-label="Переписка">
+   {more&&<button className="secondary" disabled={olderBusy} onClick={async()=>{setOlderBusy(true);try{const rows=await api(`/inbox/conversations/${conversation.id}/messages?before_id=${messages[0]?.id||0}`);atBottom.current=false;const box=scrollBox.current;if(box)restoreScroll.current={height:box.scrollHeight,top:box.scrollTop};merge(rows);setMore(rows.length===200);}catch(e:any){setError(e.message);}finally{setOlderBusy(false);}}}>{olderBusy?'Загрузка…':'Ранние сообщения'}</button>}
    {loading&&<p>Загрузка переписки…</p>}
    {!loading&&!messages.length&&!error&&<p>Сообщений пока нет.</p>}
    {messages.map(m=><div key={m.id} className={'bubble '+(m.direction==='out'?'bubble-out':'')}><small>{m.direction==='out'?'Менеджер':conversation.channel==='whatsapp'?'WhatsApp':'Instagram'}</small><div>{m.text}</div>{m.attachments?.map(a=><MediaView key={a.id} file={a}/>)}<time>{new Date(m.created_at).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</time></div>)}
