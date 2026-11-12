@@ -57,11 +57,13 @@
 
 /* The supplied photo is blurred once on a fixed decorative layer, not on content. */
 .layout{position:relative;isolation:isolate}
-.layout::before{content:"";position:fixed;inset:-24px;z-index:-1;pointer-events:none;background:url('/assets/workspace-background.png') center/cover no-repeat;filter:blur(16px);opacity:.16}
+.layout::before{content:"";position:fixed;inset:-24px;z-index:-1;pointer-events:none;background:url('/assets/workspace-background.png') center/cover no-repeat;filter:blur(5px);opacity:.24}
 [data-theme] .layout,[data-theme] .layout main{background:transparent}
-[data-theme=dark] .layout::before{opacity:.7;filter:blur(16px) brightness(.52) saturate(.7)}
-[data-theme=dark] .layout .sidebar{background:rgba(20,22,25,.94)}
+[data-theme=dark] .layout::before{opacity:.85;filter:blur(5px) brightness(.58) saturate(.8)}
+[data-theme=dark] .layout .sidebar{background:rgba(20,22,25,.62)}
 [data-theme=dark] .layout .lane{background:rgba(32,35,39,.88)}
 [data-theme=dark] .layout .workspace-filters{background:rgba(35,38,42,.94)}
 [data-theme=dark] .layout header,[data-theme=dark] .work-summary{border-color:#ffffff26}
-@media(max-width:800px){.layout::before{inset:-16px;filter:blur(12px)}[data-theme=dark] .layout::before{filter:blur(12px) brightness(.52) saturate(.7)}}
+@media(max-width:800px){.layout::before{inset:-16px;filter:blur(4px)}[data-theme=dark] .layout::before{filter:blur(4px) brightness(.58) saturate(.8)}}
+
+[data-theme=light] .layout .sidebar{background:rgba(240,241,236,.8)}
