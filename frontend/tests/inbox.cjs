@@ -50,6 +50,7 @@ const server=http.createServer((req,res)=>{
    else if(endpoint==='/api/inbox/conversations')data=currentUser.role==='admin'||!lead.manager_id||lead.manager_id===currentUser.id?[conv()]:[];
    else if(endpoint.endsWith('/messages'))data=messages;
    else if(endpoint.endsWith('/read')){read=Math.max(read,route.request().postDataJSON().last_message_id);data={ok:true};}
+   else if(endpoint.endsWith('/ai-draft'))data={text:'Подскажите нужный цвет.'};
    else if(endpoint.endsWith('/reply')){replyCalls++;messages.push({id:messages.length+1,direction:'out',text:route.request().postDataJSON().text,created_at:new Date().toISOString()});data={ok:true};}
    await route.fulfill({json:data});
   });
@@ -129,6 +130,11 @@ const server=http.createServer((req,res)=>{
   const chatBounds=await page.locator('dialog .deal-conversation').boundingBox(),detailBounds=await page.locator('dialog .deal-sidebar').boundingBox();assert(chatBounds.width>detailBounds.width&&chatBounds.x<detailBounds.x,'Chat must be primary, left column');
   assert.equal(await page.locator('dialog .bubble').innerText().then(s=>s.includes('Есть размер M?')),true);
   await page.waitForFunction(()=>document.title==='AEN CRM');
+  await page.getByRole('button',{name:'✦ Предложить ответ',exact:true}).click();
+  await page.getByText('Подскажите нужный цвет.',{exact:true}).waitFor();
+  assert.equal(replyCalls,0);
+  await page.getByRole('button',{name:'Вставить в ответ',exact:true}).click();
+  assert.equal(await page.getByRole('textbox',{name:'Ответ клиенту'}).inputValue(),'Подскажите нужный цвет.');
   await page.getByRole('textbox',{name:'Ответ клиенту'}).fill('Да, есть');
   await page.getByRole('button',{name:'Отправить',exact:true}).click();
   await page.locator('dialog').getByText('Да, есть',{exact:true}).waitFor();assert.equal(replyCalls,1);

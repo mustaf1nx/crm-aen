@@ -112,3 +112,5 @@ input[type=date]::-webkit-calendar-picker-indicator,input[type=datetime-local]::
 @media(max-width:1150px) and (min-width:801px){.sales-workspace .board{gap:8px}.sales-workspace .board .lane{padding:7px}.sales-workspace .lane-head{font-size:11px}.sales-workspace .lead-card strong{font-size:12px}}
 @media(max-width:800px){.sales-workspace .board{grid-template-columns:repeat(2,minmax(0,1fr))}.sales-workspace .board .lane{min-height:200px}.analytics-table{padding:14px}}
 @media(max-width:480px){.sales-workspace .board{grid-template-columns:1fr}.sales-workspace .board .lane{min-height:120px}}
+
+.ai-draft{padding:12px;margin:10px 0;border:1px solid #819e8d66;border-radius:12px;background:#819e8d15;max-height:200px;overflow:auto}.ai-draft p{white-space:pre-wrap;font-size:13px;line-height:1.6}.ai-draft button{margin:4px 8px 0 0}.ai-draft small{display:block}

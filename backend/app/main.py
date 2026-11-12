@@ -614,6 +614,7 @@ async def whatsapp_event(request:Request,data:WhatsAppEvent,db:Session=Depends(g
     return {'ok':True}
 
 from . import features
+from . import ai
 
 # Railway serves the built frontend from the same origin as the API.
 if os.environ.get('STATIC_DIR'):
