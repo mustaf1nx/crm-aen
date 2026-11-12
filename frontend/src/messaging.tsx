@@ -1,7 +1,7 @@
 import {MediaView,uploadFile,accept,Media} from './enhancements';
 import {useCallback,useEffect,useLayoutEffect,useRef,useState} from 'react';
 
-export type Conversation={id:number;channel?:string;lead_id:number;customer_name:string;city_id:number;last_message:string;message_count:number;unread_count:number;last_incoming_id:number;last_direction?:string;last_at?:string};
+export type Conversation={can_reply?:boolean;manager_id?:number;manager_name?:string;id:number;channel?:string;lead_id:number;customer_name:string;city_id:number;last_message:string;message_count:number;unread_count:number;last_incoming_id:number;last_direction?:string;last_at?:string};
 type Message={id:number;direction:string;text:string;created_at:string;attachments?:Media[]};
 export const api=async(path:string,method='GET',body?:Record<string,any>)=>{
  const token=sessionStorage.getItem('aen_token');
@@ -98,7 +98,7 @@ export function ChatPanel({conversation,onRead}:{conversation:Conversation;onRea
  useLayoutEffect(()=>{const box=scrollBox.current,old=restoreScroll.current;if(box&&old){box.scrollTop=old.top+box.scrollHeight-old.height;restoreScroll.current=null;}},[messages]);
  useEffect(()=>{if(atBottom.current)bottom.current?.scrollIntoView({block:'nearest'});},[messages.length]);
  const send=async(e:React.FormEvent)=>{
-  e.preventDefault();if(sending||(!reply.trim()&&!file))return;
+  e.preventDefault();if(conversation.can_reply===false||sending||(!reply.trim()&&!file))return;
   setSending(true);setError('');
   try{
    if(file){const asset=uploaded||await uploadFile(conversation.lead_id,file);setUploaded(asset);await api(`/inbox/conversations/${conversation.id}/media`,'POST',{asset_id:asset.id,text:''});setFile(null);setUploaded(null);}
@@ -117,9 +117,9 @@ export function ChatPanel({conversation,onRead}:{conversation:Conversation;onRea
    <div ref={bottom}/>
   </div>
   {error&&<div className="error" role="alert">{error}</div>}
-  <div className="quick-replies"><select aria-label="Быстрый ответ" value="" onChange={e=>editReply(e.target.value)}><option value="">Быстрые ответы…</option>{['Здравствуйте! Какой размер и цвет вас интересует?','Сейчас проверю наличие и отправлю фото товара.','Спасибо за заказ! Пришлите, пожалуйста, чек об оплате.','Подскажите город и удобный способ получения: доставка или самовывоз.'].map(t=><option key={t}>{t}</option>)}</select><label className="secondary file-button">＋ Фото / аудио / видео<input aria-label="Прикрепить файл в чат" type="file" accept={accept} disabled={sending} onChange={e=>{setFile(e.target.files?.[0]||null);setUploaded(null);e.target.value='';}}/></label></div>
+  <div className="chat-owner">{conversation.manager_name?`Ответственный: ${conversation.manager_name}`:"Общий список · первый ответ закрепит клиента за вами"}{conversation.can_reply===false&&<strong>Только просмотр · ответить может ответственный или администратор</strong>}</div><fieldset className="compose-access" disabled={conversation.can_reply===false}><div className="quick-replies"><select aria-label="Быстрый ответ" value="" onChange={e=>editReply(e.target.value)}><option value="">Быстрые ответы…</option>{['Здравствуйте! Какой размер и цвет вас интересует?','Сейчас проверю наличие и отправлю фото товара.','Спасибо за заказ! Пришлите, пожалуйста, чек об оплате.','Подскажите город и удобный способ получения: доставка или самовывоз.'].map(t=><option key={t}>{t}</option>)}</select><label className="secondary file-button">＋ Фото / аудио / видео<input aria-label="Прикрепить файл в чат" type="file" accept={accept} disabled={sending} onChange={e=>{setFile(e.target.files?.[0]||null);setUploaded(null);e.target.value='';}}/></label></div>
   {file&&<div className="pending-file">{file.name} · {(file.size/1024/1024).toFixed(1)} МБ <button onClick={()=>{setFile(null);setUploaded(null);}} disabled={sending}>Убрать</button></div>}
-  <form className="chat-compose" onSubmit={send}><textarea aria-label="Ответ клиенту" placeholder="Напишите сообщение… Ctrl+Enter — отправить" value={reply} maxLength={2000} onChange={e=>editReply(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();e.currentTarget.form?.requestSubmit();}}} disabled={sending}/><button className="primary" disabled={sending||loading||(!reply.trim()&&!file)}>{sending?'Отправка…':'Отправить'}</button></form>
+  <form className="chat-compose" onSubmit={send}><textarea aria-label="Ответ клиенту" placeholder="Напишите сообщение… Ctrl+Enter — отправить" value={reply} maxLength={2000} onChange={e=>editReply(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();e.currentTarget.form?.requestSubmit();}}} disabled={sending}/><button className="primary" disabled={sending||loading||(!reply.trim()&&!file)}>{sending?'Отправка…':'Отправить'}</button></form></fieldset>
   {file&&<small className="composer-hint">До 16 МБ · Файл и текст отправляются отдельными сообщениями</small>}
  </div>;
 }

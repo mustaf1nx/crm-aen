@@ -179,7 +179,7 @@ def cities(db:Session=Depends(get_db),user:User=Depends(current_user)):
 @app.get('/api/users')
 def users(db:Session=Depends(get_db),user:User=Depends(current_user)):
     rows=db.scalars(select(User).order_by(User.id)).all()
-    return [user_out(x) for x in rows if user.role=='admin' or x.city_id==user.city_id]
+    return [user_out(x) for x in rows if user.role=='admin' or x.role=='admin' or x.city_id==user.city_id]
 @app.post('/api/users',status_code=201)
 def create_user(data:UserIn,db:Session=Depends(get_db),user:User=Depends(admin_only)):
     if data.role not in ('admin','manager'): raise HTTPException(400,'Недопустимая роль')
@@ -229,6 +229,39 @@ def update_stage(lead_id:int,data:StageIn,db:Session=Depends(get_db),user:User=D
     if data.stage=='refusal' and not (data.refusal_reason or '').strip():raise HTTPException(400,'Укажите причину отказа')
     old=obj.stage;obj.stage=data.stage;obj.refusal_reason=data.refusal_reason if data.stage=='refusal' else None
     log(db,user,'lead.stage',f'{lead_id}: {old} -> {data.stage}');db.commit();return lead_out(obj,db)
+def owned_lead(db,lead_id,user,claim=False):
+    # NOWAIT avoids blocking the async server while another reply is in flight.
+    from sqlalchemy.exc import OperationalError
+    try:
+        lead=db.scalar(select(Lead).where(Lead.id==lead_id).with_for_update(nowait=True,key_share=True).execution_options(populate_existing=True))
+    except OperationalError as exc:
+        db.rollback()
+        if getattr(exc.orig,'pgcode',None)=='55P03' or getattr(exc.orig,'sqlstate',None)=='55P03':
+            raise HTTPException(409,'Лид сейчас обновляется. Повторите попытку.') from exc
+        raise
+    if not lead:raise HTTPException(404,'Лид не найден')
+    city_access(user,lead.city_id)
+    if user.role!='admin' and lead.manager_id not in (None,user.id):
+        raise HTTPException(403,'Этот клиент закреплён за другим сотрудником. Отправлять сообщения может ответственный или администратор.')
+    if claim and lead.manager_id is None:
+        lead.manager_id=user.id
+        log(db,user,'lead.assign',f'{lead.id}: Ответственный — {user.full_name}')
+    return lead
+
+class TransferIn(BaseModel): manager_id:int
+
+@app.post('/api/leads/{lead_id}/transfer')
+def transfer_lead(lead_id:int,data:TransferIn,db:Session=Depends(get_db),user:User=Depends(current_user)):
+    lead=owned_lead(db,lead_id,user)
+    if user.role!='admin' and lead.manager_id!=user.id:
+        raise HTTPException(403,'Передавать лид может ответственный или администратор')
+    target=db.get(User,data.manager_id)
+    if not target or not target.active or (target.role!='admin' and target.city_id!=lead.city_id):
+        raise HTTPException(400,'Выберите активного сотрудника этого города или администратора')
+    lead.manager_id=target.id
+    log(db,user,'lead.transfer',f'{lead.id}: Передан сотруднику {target.full_name}')
+    db.commit();return lead_out(lead,db)
+
 class LeadDetailsIn(BaseModel):
     manager_id:Optional[int]=None
     notes:str=Field(default='',max_length=10000)
@@ -237,9 +270,9 @@ class LeadDetailsIn(BaseModel):
 
 @app.patch('/api/leads/{lead_id}/details')
 def update_lead_details(lead_id:int,data:LeadDetailsIn,db:Session=Depends(get_db),user:User=Depends(current_user)):
-    lead=db.get(Lead,lead_id)
-    if not lead:raise HTTPException(404,'Лид не найден')
-    city_access(user,lead.city_id)
+    lead=owned_lead(db,lead_id,user)
+    if data.manager_id!=lead.manager_id and user.role!='admin':
+        raise HTTPException(403,'Для смены ответственного используйте передачу лида')
     if not data.customer_name.strip():raise HTTPException(400,'Укажите имя клиента')
     if data.manager_id is not None:
         manager=db.get(User,data.manager_id)
@@ -268,7 +301,7 @@ def lead_activity(lead_id:int,db:Session=Depends(get_db),user:User=Depends(curre
     if not lead:raise HTTPException(404,'Лид не найден')
     city_access(user,lead.city_id)
     rows=db.execute(select(Audit,User.full_name).join(User,User.id==Audit.actor_id).where(
-        Audit.action.in_(['lead.stage','lead.update','lead.comment','lead.file']),Audit.detail.startswith(f'{lead_id}: ')
+        Audit.action.in_(['lead.stage','lead.update','lead.comment','lead.file','lead.assign','lead.transfer']),Audit.detail.startswith(f'{lead_id}: ')
     ).order_by(Audit.id.desc()).limit(200)).all()
     return [{'id':a.id,'action':a.action,'text':a.detail.split(': ',1)[1],'actor':name,'created_at':a.created_at.isoformat()} for a,name in rows]
 
@@ -333,8 +366,7 @@ def ingest_instagram(db:Session, account_id:str, sender_id:str, body:str, extern
         if not city: raise ValueError('No city configured')
         customer=Customer(name='Instagram · '+sender_id[-12:],instagram=sender_id,city_id=city.id,notes='Автоматически из Instagram Direct')
         db.add(customer);db.flush()
-        manager=db.scalar(select(User).where(User.role=='manager',User.active==True,User.city_id==city.id).order_by(User.id))
-        lead=Lead(customer_id=customer.id,city_id=city.id,manager_id=manager.id if manager else None,source='instagram',notes='Автоматически создан из Instagram Direct')
+        lead=Lead(customer_id=customer.id,city_id=city.id,manager_id=None,source='instagram',notes='Автоматически создан из Instagram Direct')
         db.add(lead);db.flush()
         conv=InstagramConversation(account_id=account_id,sender_id=sender_id,city_id=city.id,customer_id=customer.id,lead_id=lead.id)
         db.add(conv);db.flush()
@@ -395,10 +427,12 @@ def instagram_conversations(background_tasks:BackgroundTasks,db:Session=Depends(
     incoming={}
     for cid,mid in db.execute(select(InstagramMessage.conversation_id,InstagramMessage.id).where(InstagramMessage.conversation_id.in_(ids),InstagramMessage.direction=='in')):
         count,latest=incoming.get(cid,(0,0));incoming[cid]=(count+int(mid>reads.get(cid,0)),max(mid,latest))
+    owners={l.id:l.manager_id for l in db.scalars(select(Lead).where(Lead.id.in_([c.lead_id for c in rows])))}
+    names={u.id:u.full_name for u in db.scalars(select(User))}
     out=[]
     for c in rows:
         customer=customers.get(c.customer_id);count=counts.get(c.id,(c.id,0,0));last=lasts.get(count[2]);unread,latest_in=incoming.get(c.id,(0,0))
-        out.append({'id':c.id,'channel':'whatsapp' if c.account_id.startswith('wa:') else 'instagram','customer_name':customer.name if customer else 'Клиент','sender_id':c.sender_id,'city_id':c.city_id,'lead_id':c.lead_id,'last_message':last.text or 'Вложение' if last else '', 'last_direction':last.direction if last else '', 'last_at':last.created_at.isoformat() if last else None,
+        out.append({'manager_id':owners.get(c.lead_id),'manager_name':names.get(owners.get(c.lead_id)), 'can_reply':user.role=='admin' or owners.get(c.lead_id) in (None,user.id),'id':c.id,'channel':'whatsapp' if c.account_id.startswith('wa:') else 'instagram','customer_name':customer.name if customer else 'Клиент','sender_id':c.sender_id,'city_id':c.city_id,'lead_id':c.lead_id,'last_message':last.text or 'Вложение' if last else '', 'last_direction':last.direction if last else '', 'last_at':last.created_at.isoformat() if last else None,
                     'message_count':count[1],'unread_count':unread,'last_message_id':last.id if last else 0,'last_incoming_id':latest_in})
     return sorted(out,key=lambda c:c['last_message_id'],reverse=True)
 
@@ -451,9 +485,11 @@ async def reply_instagram(conversation_id:int,data:ReplyIn,db:Session=Depends(ge
     if not conv: raise HTTPException(404,'Диалог не найден')
     city_access(user,conv.city_id)
     if not data.text.strip():raise HTTPException(400,'Введите сообщение')
+    owned_lead(db,conv.lead_id,user,claim=True)
     if conv.account_id.startswith('wa:'):
         result=await whatsapp_bridge('send',{'account':conv.account_id[3:],'jid':conv.sender_id,'text':data.text})
         ingest_whatsapp(db,WhatsAppEvent(account=conv.account_id[3:],sender=conv.sender_id,mid=result['id'],text=data.text,direction='out'))
+        db.commit()
         return {'ok':True}
     if not IG_ACCESS_TOKEN or not IG_ACCOUNT_ID: raise HTTPException(503,'Instagram token/account not configured')
     url=f'https://graph.instagram.com/{IG_GRAPH_VERSION}/{IG_ACCOUNT_ID}/messages'

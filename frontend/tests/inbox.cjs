@@ -16,22 +16,25 @@ const server=http.createServer((req,res)=>{
  const browser=await chromium.launch({channel:'chrome',headless:true});
  try{
   const page=await browser.newPage({viewport:{width:1512,height:982}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
+  let currentUser={id:1,role:'admin',full_name:'Tester'},transferCalls=0;
   let read=0,replyCalls=0,stageCalls=0,failStage=false;
   let savedDetails=null,waConnects=0,mediaCalls=0;const files=[];
   const photo={id:"photo1",name:"product.png",mime:"image/png",url:"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j4l0AAAAASUVORK5CYII="};
   const lead={id:1,customer_id:1,customer_name:'Тестовый клиент',city_id:1,stage:'new',source:'instagram',created_at:new Date().toISOString()};
   const activity=[];
   const messages=[{id:1,direction:'in',text:'Есть размер M?',created_at:new Date().toISOString()}];
-  const conv=()=>({id:1,lead_id:1,customer_name:'Тестовый клиент',city_id:1,last_direction:messages.at(-1).direction,last_message:messages.at(-1).text,message_count:messages.length,unread_count:messages.filter(m=>m.direction==='in'&&m.id>read).length,last_incoming_id:messages.filter(m=>m.direction==='in').at(-1).id});
+  const conv=()=>({can_reply:currentUser.role==='admin'||!lead.manager_id||lead.manager_id===currentUser.id,manager_id:lead.manager_id,manager_name:lead.manager_id?'Tester':null,id:1,lead_id:1,customer_name:'Тестовый клиент',city_id:1,last_direction:messages.at(-1).direction,last_message:messages.at(-1).text,message_count:messages.length,unread_count:messages.filter(m=>m.direction==='in'&&m.id>read).length,last_incoming_id:messages.filter(m=>m.direction==='in').at(-1).id});
   await page.emulateMedia({colorScheme:'light'});
   await page.addInitScript(()=>sessionStorage.setItem('aen_token','test-only'));
   await page.route('**/api/**',async route=>{
    const url=new URL(route.request().url());const endpoint=url.pathname;
    let data=[];
-   if(endpoint==='/api/me')data={id:1,role:'admin',full_name:'Tester'};
+   if(endpoint==='/api/me')data=currentUser;
+   else if(endpoint==='/api/users')data=[{id:1,role:'admin',full_name:'Tester',active:true},{id:2,role:'manager',full_name:'Manager',city_id:1,active:true}];
+   else if(endpoint.endsWith('/transfer')){transferCalls++;lead.manager_id=route.request().postDataJSON().manager_id;data=lead;}
    else if(endpoint==='/api/cities')data=[{id:1,name:'Семей'}];
    else if(endpoint==='/api/leads')data=[lead];
-   else if(endpoint==='/api/customers')data=[{id:1,name:'Тестовый клиент',city_id:1}];
+   else if(endpoint==='/api/customers')data=[{id:1,name:'Тестовый клиент',city_id:1,notes:'Автоматически из Instagram Direct'},{id:2,name:'WhatsApp клиент',city_id:1,phone:'+77010000000'}];
    else if(endpoint.endsWith('/files')){if(route.request().method()==='POST'){data={...photo,purpose:url.searchParams.get('purpose')};if(data.purpose!=='chat')files.push(data);}else data=files;}
    else if(endpoint.endsWith('/media')){mediaCalls++;messages.push({id:messages.length+1,direction:'out',text:'',created_at:new Date().toISOString(),attachments:[photo]});data={ok:true};}
    else if(endpoint.endsWith('/unread')){read=0;data={ok:true};}
@@ -152,6 +155,28 @@ const server=http.createServer((req,res)=>{
   assert.equal(errors.length,0,errors.join('\n'));
   await page.getByRole('button',{name:'Включить светлую тему',exact:true}).click();
   assert.equal(await page.evaluate(()=>document.documentElement.dataset.theme),'light');
+  await page.setViewportSize({width:1512,height:982});
+  await page.getByRole('button',{name:'Клиенты',exact:true}).click();
+  await page.locator('.customer-table').waitFor();
+  assert.equal(await page.locator('.customer-channel.instagram').textContent(),'Instagram');
+  assert.equal(await page.locator('.customer-channel.whatsapp').textContent(),'WhatsApp');
+  assert.equal(await page.getByText('Автоматически из Instagram Direct',{exact:true}).count(),0);
+  assert.equal(await page.locator('.customer-table').evaluate(e=>getComputedStyle(e).borderRadius),'20px');
+  if(process.env.QA_DIR)await page.screenshot({path:path.join(process.env.QA_DIR,'aen-customers.png'),fullPage:true});
+  lead.manager_id=1;currentUser={id:2,role:'manager',city_id:1,full_name:'Manager'};
+  await page.reload();
+  await page.locator('[data-lead-id="1"]').click();
+  await page.getByText('Только просмотр · ответить может ответственный или администратор').waitFor();
+  assert(await page.getByLabel('Ответ клиенту',{exact:true}).isDisabled());
+  assert.equal(await page.getByLabel('Передать клиента',{exact:true}).count(),0);
+  await page.getByRole('button',{name:'Закрыть переписку'}).click();
+  lead.manager_id=2;await page.evaluate(()=>window.dispatchEvent(new Event('aen-change')));
+  await page.reload();await page.locator('[data-lead-id="1"]').click();
+  await page.getByLabel('Передать клиента',{exact:true}).selectOption('1');
+  await page.getByRole('button',{name:'Передать',exact:true}).click();
+  await page.getByText('Только просмотр · ответить может ответственный или администратор').waitFor();
+  assert.equal(transferCalls,1);assert.equal(lead.manager_id,1);
+  assert(await page.getByLabel('Ответ клиенту',{exact:true}).isDisabled());
   console.log('PASS: funnel chat, read badge, mocked reply, stage editing, live notification, mobile dialog, inbox');
  }finally{await browser.close();server.close();}
 })().catch(e=>{console.error(e);server.close();process.exitCode=1;});

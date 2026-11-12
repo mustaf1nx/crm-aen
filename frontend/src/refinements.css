@@ -18,3 +18,51 @@ header h1{font-size:26px;font-weight:600;line-height:1.3}
 [data-theme=dark] .sales-workspace .work-summary button[aria-pressed=true]{background:#263e34;border-color:#72ad94}
 [data-theme=dark] .sales-workspace .work-summary button[aria-pressed=true] strong{background:#82cdb32b;color:#bcf0d9}
 @media(max-width:800px){header h1{font-size:23px}.sales-workspace .work-summary{gap:8px;margin-bottom:16px}.sales-workspace .work-summary button{padding:8px 12px;gap:8px}.sales-workspace .work-summary span{font-size:12px}.sales-workspace .work-summary strong{font-size:13px;min-width:24px;min-height:24px}}
+
+.panel.customer-table{border-radius:20px;padding:12px;overflow:auto}
+.customer-table table{border-collapse:separate;border-spacing:0}
+.customer-table th:first-child{border-radius:12px 0 0 12px}
+.customer-table th:last-child{border-radius:0 12px 12px 0}
+.customer-table th{border-bottom:0}
+.customer-table th,.customer-table td{padding:16px}
+.customer-table tbody tr:hover td{background:#7187770b}
+.customer-table tbody td:first-child{border-radius:10px 0 0 10px}
+.customer-table tbody td:last-child{border-radius:0 10px 10px 0}
+.customer-channels{display:flex;gap:6px;align-items:center}
+.customer-channel{display:inline-flex;padding:5px 10px;border-radius:99px;font-size:12px;font-weight:500;line-height:18px}
+.customer-channel.instagram{color:#79548b;background:#efe7f3}
+.customer-channel.whatsapp{color:#367052;background:#e5f0e9}
+.customer-note{white-space:normal;max-width:350px;margin-top:7px;font-size:12px;line-height:1.5;color:#66716c}
+[data-theme=dark] .customer-channel.instagram{color:#dec7ed;background:#b18bc223}
+[data-theme=dark] .customer-channel.whatsapp{color:#b7dfcb;background:#72b49223}
+[data-theme=dark] .customer-note{color:#b9c1c7}
+[data-theme=dark] .customer-table tbody tr:hover td{background:#ffffff04}
+
+.panel.tablewrap{border-radius:20px}
+.tablewrap table{border-collapse:separate;border-spacing:0}
+.tablewrap th:first-child{border-radius:12px 0 0 12px}
+.tablewrap th:last-child{border-radius:0 12px 12px 0}
+select,input[type=date],input[type=datetime-local]{border-radius:12px!important;min-height:42px;padding:10px 14px;border:1px solid #b4beb8;background:#f8faf7;color:#29372f;transition:border-color .15s,box-shadow .15s}
+select:focus-visible,input[type=date]:focus-visible,input[type=datetime-local]:focus-visible{outline:2px solid #93b7a4;outline-offset:2px}
+[data-theme=dark] input[type=date],[data-theme=dark] input[type=datetime-local]{color-scheme:dark}
+input[type=date]::-webkit-calendar-picker-indicator,input[type=datetime-local]::-webkit-calendar-picker-indicator{cursor:pointer;opacity:.75;padding:4px}
+@supports (appearance:base-select){
+ select,select::picker(select){appearance:base-select}
+ select::picker(select){border:1px solid #cbd4ce;border-radius:14px;padding:6px;background:#fbfcfa;color:#25332b;box-shadow:0 12px 35px #0002;max-height:320px;overflow:auto}
+ select option{border-radius:8px;padding:10px 12px;gap:8px;white-space:normal}
+ select option:checked{background:#e5eee8;color:#254c37;font-weight:600}
+ select option:hover,select option:focus{background:#edf1ed}
+ select::picker-icon{color:#7c9185;transition:rotate .2s}
+ select:open::picker-icon{rotate:180deg}
+ [data-theme=dark] select::picker(select){background:#292f35;border-color:#ffffff29;color:#e1e7eb;box-shadow:0 14px 40px #0005}
+ [data-theme=dark] select option:checked{background:#3a5147;color:#dcf2e5}
+ [data-theme=dark] select option:hover,[data-theme=dark] select option:focus{background:#39424a}
+}
+.compose-access{border:0;padding:0;margin:0;min-width:0}
+.compose-access:disabled{opacity:.55}
+.chat-owner{padding:9px 14px;font-size:12px;line-height:1.6;color:#65736b}
+.chat-owner strong{display:block;font-weight:500;color:#996a36}
+[data-theme=dark] .chat-owner{color:#becbc3}
+[data-theme=dark] .chat-owner strong{color:#e0bb86}
+.lead-transfer{padding:14px;margin-bottom:18px;border:1px solid #809c872e;border-radius:14px;background:#809c8709}
+.lead-transfer .field{margin-bottom:8px}

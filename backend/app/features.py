@@ -149,10 +149,12 @@ async def _send_media(cid,body,request,db,user):
     a=db.get(Asset,body.asset_id)
     if not a or a.lead_id!=c.lead_id or a.purpose!='chat' or not a.data: raise HTTPException(400,'Файл не принадлежит этой переписке')
     if a.message_id: raise HTTPException(409,'Файл уже отправлен')
+    m.owned_lead(db,c.lead_id,user,claim=True)
     kind=a.mime.split('/')[0]
     if c.account_id.startswith('wa:'):
         result=await m.whatsapp_bridge('send',{'account':c.account_id[3:],'jid':c.sender_id,'text':body.text,'media':{'data':base64.b64encode(a.data).decode(),'mime':a.mime,'name':a.name},'asset_id':a.id})
         m.ingest_whatsapp(db,m.WhatsAppEvent(account=c.account_id[3:],sender=c.sender_id,mid=result['id'],text=body.text,direction='out',asset_id=a.id))
+        db.commit()
     else:
         if kind not in ('image','audio','video'): raise HTTPException(400,'Instagram поддерживает фото, аудио и видео; PDF отправьте в WhatsApp')
         host='graph.facebook.com' if os.getenv('IG_AUTH_MODE','facebook')=='facebook' else 'graph.instagram.com'
