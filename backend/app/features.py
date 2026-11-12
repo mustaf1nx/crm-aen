@@ -5,7 +5,7 @@ import httpx
 from fastapi import Depends, HTTPException, Request, Response, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from sqlalchemy import ForeignKey, String, Text, LargeBinary, DateTime, Integer, select, func, event
-from sqlalchemy.orm import Mapped, mapped_column, Session, deferred
+from sqlalchemy.orm import Mapped, mapped_column, Session, deferred, column_property
 from pydantic import BaseModel, Field
 from . import main as m
 
@@ -19,6 +19,7 @@ class Asset(m.Base):
     name:Mapped[str]=mapped_column(String(180))
     mime:Mapped[str]=mapped_column(String(100))
     data:Mapped[bytes|None]=mapped_column(LargeBinary,nullable=True,deferred=True)
+    ready=column_property(data.is_not(None))
     remote:Mapped[str|None]=mapped_column(Text,nullable=True)
     created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=lambda:datetime.now(timezone.utc))
 class Profile(m.Base):
@@ -77,7 +78,7 @@ def validate_file(data,mime):
 
 def media_out(a):
     token=m.jwt.encode({'sub':a.id,'aud':'media','exp':datetime.now(timezone.utc)+timedelta(minutes=30)},m.SECRET_KEY,algorithm='HS256')
-    return {'id':a.id,'name':a.name,'mime':a.mime,'purpose':a.purpose,'url':f'/api/media/{a.id}?ticket={token}','created_at':a.created_at.isoformat()}
+    return {'ready':bool(a.ready),'pending':bool(a.remote),'id':a.id,'name':a.name,'mime':a.mime,'purpose':a.purpose,'url':f'/api/media/{a.id}?ticket={token}','created_at':a.created_at.isoformat()}
 
 @m.app.get('/api/media/{asset_id}')
 def get_media(asset_id:str,ticket:str,request:Request,db=Depends(m.get_db)):

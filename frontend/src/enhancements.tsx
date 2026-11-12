@@ -1,6 +1,6 @@
 import {useEffect,useRef,useState} from 'react';
 import {api} from './messaging';
-export type Media={id:string;name:string;mime:string;url:string;purpose?:string};
+export type Media={id:string;name:string;mime:string;url:string;purpose?:string;ready?:boolean;pending?:boolean};
 export const accept='image/jpeg,image/png,image/webp,video/mp4,audio/mpeg,audio/ogg,audio/mp4,audio/wav,application/pdf';
 export async function uploadFile(lead:number,file:File,purpose='chat'):Promise<Media>{
  if(file.size>16*1024*1024)throw Error('Максимальный размер файла — 16 МБ');
@@ -9,7 +9,10 @@ export async function uploadFile(lead:number,file:File,purpose='chat'):Promise<M
 }
 export function MediaView({file}:{file:Media}){
  const [failed,setFailed]=useState(false);
- if(failed)return <small>Файл пока недоступен. Обновите чат или откройте мессенджер.</small>;
+ useEffect(()=>{setFailed(false);},[file.url,file.ready]);
+ if(file.ready===false&&file.pending)return <small role="status">Загружаем вложение… Оно появится автоматически.</small>;
+ if(file.ready===false)return <small>Не удалось получить файл из мессенджера.</small>;
+ if(failed)return <button className="text-link" onClick={()=>setFailed(false)}>Повторить загрузку файла</button>;
  return <div className="media-preview">{file.mime.startsWith('image/')?<a href={file.url} target="_blank" rel="noreferrer"><img loading="lazy" src={file.url} alt={file.name} onError={()=>setFailed(true)}/></a>:file.mime.startsWith('video/')?<video controls preload="metadata" src={file.url} onError={()=>setFailed(true)}/>:file.mime.startsWith('audio/')?<audio controls preload="metadata" src={file.url} onError={()=>setFailed(true)}/>:<a href={file.url} target="_blank" rel="noreferrer">📄 {file.name}</a>}</div>;
 }
 export function DealFiles({lead}:{lead:number}){
