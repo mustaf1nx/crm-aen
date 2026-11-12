@@ -54,3 +54,14 @@
 [data-theme=dark] :is(.deal-dialog,.refusal-dialog)::backdrop{background:#030d08b8}
 @media(max-width:800px){.header-actions{gap:8px}.theme-toggle span{display:none}.theme-toggle{min-width:40px;justify-content:center;padding:8px}.login-wrap>.theme-toggle{right:16px;top:16px}}
 [data-theme=dark] :is(.deal-file-grid>div,.pending-file){background:#2d3238;color:#e7e9ec;border-color:var(--border)}[data-theme=dark] :is(.deal-file-grid small,.deal-files>small){color:#a6acb3}[data-theme=dark] .media-preview a{color:#96d9b7}
+
+/* The supplied photo is blurred once on a fixed decorative layer, not on content. */
+.layout{position:relative;isolation:isolate}
+.layout::before{content:"";position:fixed;inset:-24px;z-index:-1;pointer-events:none;background:url('/assets/workspace-background.png') center/cover no-repeat;filter:blur(16px);opacity:.16}
+[data-theme] .layout,[data-theme] .layout main{background:transparent}
+[data-theme=dark] .layout::before{opacity:.7;filter:blur(16px) brightness(.52) saturate(.7)}
+[data-theme=dark] .layout .sidebar{background:rgba(20,22,25,.94)}
+[data-theme=dark] .layout .lane{background:rgba(32,35,39,.88)}
+[data-theme=dark] .layout .workspace-filters{background:rgba(35,38,42,.94)}
+[data-theme=dark] .layout header,[data-theme=dark] .work-summary{border-color:#ffffff26}
+@media(max-width:800px){.layout::before{inset:-16px;filter:blur(12px)}[data-theme=dark] .layout::before{filter:blur(12px) brightness(.52) saturate(.7)}}
