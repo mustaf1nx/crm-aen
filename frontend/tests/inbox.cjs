@@ -65,6 +65,11 @@ const server=http.createServer((req,res)=>{
   assert.equal(await page.getByRole('button',{name:'Вчера',exact:true}).getAttribute('aria-pressed'),'true');
   await page.getByRole('button',{name:'Сбросить',exact:true}).click();
   assert.equal(await page.getByRole('button',{name:'Сегодня',exact:true}).getAttribute('aria-pressed'),'true');
+  for(const width of [1512,1280,1024]){
+   await page.setViewportSize({width,height:982});
+   assert(await page.locator('.board').evaluate(e=>e.scrollWidth<=e.clientWidth+1),'Board must fit width '+width);
+  }
+  await page.setViewportSize({width:1512,height:982});
   await page.getByRole('button',{name:'Включить тёмную тему',exact:true}).click();
   assert.equal(await page.evaluate(()=>document.documentElement.dataset.theme),'dark');
   await page.reload();

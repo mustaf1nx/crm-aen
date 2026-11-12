@@ -91,3 +91,24 @@ input[type=date]::-webkit-calendar-picker-indicator,input[type=datetime-local]::
 @media(max-width:800px){.deal-dialog-inner{height:auto}.deal-dialog .deal-body{height:auto;min-height:0}.date-presets button{padding:8px 11px}.date-filter{gap:6px}}
 
 .audit-detail{white-space:pre-wrap;overflow-wrap:anywhere;min-width:220px;max-width:520px;line-height:1.6}.audit-table time{font-size:12px;color:inherit}.audit-table .customer-channel{background:#809c8715;border-radius:8px}
+
+.section-count{display:inline-flex;align-items:center;gap:10px;font-size:14px;font-weight:500;color:inherit}
+.section-count b,.table-total{display:inline-flex;align-items:center;justify-content:center;min-width:30px;padding:4px 9px;border-radius:9px;background:#83998c1c;font-size:13px;font-weight:600}
+.analytics-table{min-width:0;padding:20px;border-radius:20px}
+.analytics-table h2{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+.analytics-table table{table-layout:fixed;white-space:normal;border-collapse:separate;border-spacing:0}
+.analytics-table th{font-size:10px;letter-spacing:.06em;border:0;padding:13px 10px}
+.analytics-table th:first-child{border-radius:10px 0 0 10px;width:40%}
+.analytics-table th:last-child{border-radius:0 10px 10px 0;text-align:right}
+.analytics-table td{padding:15px 10px;overflow-wrap:anywhere}
+.analytics-table td:last-child{text-align:right;font-variant-numeric:tabular-nums}
+.analytics-empty{padding:28px 12px;text-align:center;font-size:13px;opacity:.65}
+.sales-workspace .board{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;overflow:visible;margin-right:0;align-items:start}
+.sales-workspace .board .lane{width:100%;min-width:0;padding:10px;min-height:440px}
+.sales-workspace .lane-head{flex-wrap:wrap;gap:6px;font-size:12px}
+.sales-workspace .lane-head .count{flex-shrink:0}
+.sales-workspace .lead-card{width:100%;min-width:0;padding:12px 10px;overflow-wrap:anywhere}
+.sales-workspace .card-meta,.sales-workspace .lead-foot{flex-wrap:wrap;gap:6px}
+@media(max-width:1150px) and (min-width:801px){.sales-workspace .board{gap:8px}.sales-workspace .board .lane{padding:7px}.sales-workspace .lane-head{font-size:11px}.sales-workspace .lead-card strong{font-size:12px}}
+@media(max-width:800px){.sales-workspace .board{grid-template-columns:repeat(2,minmax(0,1fr))}.sales-workspace .board .lane{min-height:200px}.analytics-table{padding:14px}}
+@media(max-width:480px){.sales-workspace .board{grid-template-columns:1fr}.sales-workspace .board .lane{min-height:120px}}
