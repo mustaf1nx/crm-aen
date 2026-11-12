@@ -138,3 +138,9 @@ input[type=date]::-webkit-calendar-picker-indicator,input[type=datetime-local]::
  .messages-page .deal-conversation{height:100%;min-height:360px}
  .messages-page .deal-sidebar{max-height:none}
 }
+
+.workspace-overview{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:18px}
+.workspace-overview .work-summary{order:0;margin:0;flex:0 1 auto}
+.workspace-overview .workspace-top{order:1;margin:0;margin-left:auto}
+.workspace-overview .workspace-actions{flex-wrap:wrap}
+@media(max-width:600px){.workspace-overview{gap:12px}.workspace-overview .work-summary{width:100%}.workspace-overview .workspace-top{width:100%}}
