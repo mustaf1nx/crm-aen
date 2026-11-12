@@ -179,10 +179,18 @@ const server=http.createServer((req,res)=>{
   assert.equal(await page.evaluate(()=>document.documentElement.dataset.theme),'light');
   await page.setViewportSize({width:1512,height:982});
   await page.evaluate(()=>window.scrollTo(0,0));
-  const inboxBounds=await page.locator('.messenger-shell').boundingBox();
-  const replyBounds=await page.locator('.messenger-detail .chat-compose').boundingBox();
-  assert(Math.abs(982-inboxBounds.y-inboxBounds.height)<50,'Inbox fills desktop viewport');
-  assert(inboxBounds.y+inboxBounds.height-replyBounds.y-replyBounds.height<55,'Composer sits at inbox bottom');
+  for(const height of [982,720]){
+   await page.setViewportSize({width:1512,height});
+   const composer=page.locator('.messenger-detail .chat-compose');
+   await composer.scrollIntoViewIfNeeded();
+   const replyBounds=await composer.boundingBox();
+   const logBounds=await page.locator('.messenger-detail .chat-messages').boundingBox();
+   assert(logBounds.height>=220,'Conversation must not collapse on short screens');
+   assert(replyBounds.y+replyBounds.height<=height,'Reply remains reachable');
+   assert(await page.locator('main.messages-page').evaluate(e=>e.scrollHeight<=e.clientHeight+1),'No nested page scrollbar');
+   assert(await page.locator('.messenger-detail .chat-content').evaluate(e=>e.scrollHeight<=e.clientHeight+1),'No nested composer scrollbar');
+  }
+  await page.setViewportSize({width:1512,height:982});
   await page.getByRole('button',{name:'Клиенты',exact:true}).click();
   await page.locator('.customer-table').waitFor();
   assert.equal(await page.locator('.customer-channel.instagram').textContent(),'Instagram');
