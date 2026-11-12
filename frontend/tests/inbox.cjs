@@ -54,6 +54,16 @@ const server=http.createServer((req,res)=>{
   });
   await page.goto(`http://127.0.0.1:${server.address().port}`);
   await page.waitForFunction(()=>document.title.includes('AEN CRM'));
+  assert.equal(await page.getByRole('button',{name:'Сегодня',exact:true}).getAttribute('aria-pressed'),'true');
+  await page.getByRole('button',{name:'Вчера',exact:true}).click();
+  for(const label of ['Непрочитанные','В работе','Ждут ответа']){
+   await page.locator('.work-summary button').filter({hasText:label}).click();
+   assert.equal(await page.getByRole('button',{name:'Вчера',exact:true}).getAttribute('aria-pressed'),'true');
+  }
+  await page.getByRole('button',{name:'Мои сделки',exact:true}).click();
+  assert.equal(await page.getByRole('button',{name:'Вчера',exact:true}).getAttribute('aria-pressed'),'true');
+  await page.getByRole('button',{name:'Сбросить',exact:true}).click();
+  assert.equal(await page.getByRole('button',{name:'Сегодня',exact:true}).getAttribute('aria-pressed'),'true');
   await page.getByRole('button',{name:'Включить тёмную тему',exact:true}).click();
   assert.equal(await page.evaluate(()=>document.documentElement.dataset.theme),'dark');
   await page.reload();
