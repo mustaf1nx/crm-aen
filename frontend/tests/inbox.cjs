@@ -170,6 +170,7 @@ const server=http.createServer((req,res)=>{
   await page.getByRole('button',{name:'Подключения'}).click();
   await page.getByRole('button',{name:'Подключить по QR'}).click();assert.equal(waConnects,1);
   await page.getByRole('button',{name:'Подключения'}).click();
+  const emptyInboxHeight=await page.locator('.messenger-shell').evaluate(e=>e.getBoundingClientRect().height);
   await page.locator('.chat-item').click();
   await page.locator('.chat-content .bubble').first().waitFor();
   const mobileChat=await page.locator('.messenger-detail .chat-content').boundingBox();assert(mobileChat.x>=0&&mobileChat.x+mobileChat.width<=390,'Mobile chat must fit viewport');
@@ -186,6 +187,9 @@ const server=http.createServer((req,res)=>{
    const replyBounds=await composer.boundingBox();
    const logBounds=await page.locator('.messenger-detail .chat-messages').boundingBox();
    assert(logBounds.height>=220,'Conversation must not collapse on short screens');
+   const shell=await page.locator('.messenger-shell').boundingBox();
+   assert(shell.height<=Math.max(700,height-360)+2,'Opening chat must not expand the inbox');
+   assert(shell.y+shell.height-replyBounds.y-replyBounds.height<55,'No blank area below open chat composer');
    assert(replyBounds.y+replyBounds.height<=height,'Reply remains reachable');
    assert(await page.locator('main.messages-page').evaluate(e=>e.scrollHeight<=e.clientHeight+1),'No nested page scrollbar');
    assert(await page.locator('.messenger-detail .chat-content').evaluate(e=>e.scrollHeight<=e.clientHeight+1),'No nested composer scrollbar');
