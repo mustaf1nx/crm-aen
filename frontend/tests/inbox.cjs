@@ -23,6 +23,7 @@ const server=http.createServer((req,res)=>{
   const activity=[];
   const messages=[{id:1,direction:'in',text:'Есть размер M?',created_at:new Date().toISOString()}];
   const conv=()=>({id:1,lead_id:1,customer_name:'Тестовый клиент',city_id:1,last_direction:messages.at(-1).direction,last_message:messages.at(-1).text,message_count:messages.length,unread_count:messages.filter(m=>m.direction==='in'&&m.id>read).length,last_incoming_id:messages.filter(m=>m.direction==='in').at(-1).id});
+  await page.emulateMedia({colorScheme:'light'});
   await page.addInitScript(()=>sessionStorage.setItem('aen_token','test-only'));
   await page.route('**/api/**',async route=>{
    const url=new URL(route.request().url());const endpoint=url.pathname;
@@ -50,6 +51,11 @@ const server=http.createServer((req,res)=>{
   });
   await page.goto(`http://127.0.0.1:${server.address().port}`);
   await page.waitForFunction(()=>document.title.includes('AEN CRM'));
+  await page.getByRole('button',{name:'Включить тёмную тему',exact:true}).click();
+  assert.equal(await page.evaluate(()=>document.documentElement.dataset.theme),'dark');
+  await page.reload();
+  await page.getByRole('button',{name:'Включить светлую тему',exact:true}).waitFor();
+  assert.equal(await page.evaluate(()=>localStorage.getItem('aen-theme')),'dark');
   await page.getByRole('button',{name:'Воронка продаж',exact:true}).click();
   await page.getByRole('textbox',{name:'Поиск клиентов и сделок'}).fill('missing');
   assert.equal(await page.locator('.lead-card').count(),0);
@@ -144,6 +150,8 @@ const server=http.createServer((req,res)=>{
   const mobileChat=await page.locator('.messenger-detail .chat-content').boundingBox();assert(mobileChat.x>=0&&mobileChat.x+mobileChat.width<=390,'Mobile chat must fit viewport');
   if(process.env.QA_DIR)await page.screenshot({path:path.join(process.env.QA_DIR,'aen-mobile.png'),fullPage:true});
   assert.equal(errors.length,0,errors.join('\n'));
+  await page.getByRole('button',{name:'Включить светлую тему',exact:true}).click();
+  assert.equal(await page.evaluate(()=>document.documentElement.dataset.theme),'light');
   console.log('PASS: funnel chat, read badge, mocked reply, stage editing, live notification, mobile dialog, inbox');
  }finally{await browser.close();server.close();}
 })().catch(e=>{console.error(e);server.close();process.exitCode=1;});
