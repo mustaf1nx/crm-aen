@@ -52,4 +52,4 @@
 [data-theme=dark] :is(button,input,select,textarea):focus-visible{outline-color:#b4d6a2}
 [data-theme=dark] :is(.deal-dialog,.refusal-dialog)::backdrop{background:#060a07b8}
 @media(max-width:800px){.header-actions{gap:8px}.theme-toggle span{display:none}.theme-toggle{min-width:40px;justify-content:center;padding:8px}.login-wrap>.theme-toggle{right:16px;top:16px}}
-`n[data-theme=dark] :is(.deal-file-grid>div,.pending-file){background:#283128;color:#e5e9e2;border-color:var(--border)}[data-theme=dark] :is(.deal-file-grid small,.deal-files>small){color:#a1aba1}[data-theme=dark] .media-preview a{color:#b4d6a2}
+[data-theme=dark] :is(.deal-file-grid>div,.pending-file){background:#283128;color:#e5e9e2;border-color:var(--border)}[data-theme=dark] :is(.deal-file-grid small,.deal-files>small){color:#a1aba1}[data-theme=dark] .media-preview a{color:#b4d6a2}
