@@ -178,6 +178,11 @@ const server=http.createServer((req,res)=>{
   await page.getByRole('button',{name:'Включить светлую тему',exact:true}).click();
   assert.equal(await page.evaluate(()=>document.documentElement.dataset.theme),'light');
   await page.setViewportSize({width:1512,height:982});
+  await page.evaluate(()=>window.scrollTo(0,0));
+  const inboxBounds=await page.locator('.messenger-shell').boundingBox();
+  const replyBounds=await page.locator('.messenger-detail .chat-compose').boundingBox();
+  assert(Math.abs(982-inboxBounds.y-inboxBounds.height)<50,'Inbox fills desktop viewport');
+  assert(inboxBounds.y+inboxBounds.height-replyBounds.y-replyBounds.height<55,'Composer sits at inbox bottom');
   await page.getByRole('button',{name:'Клиенты',exact:true}).click();
   await page.locator('.customer-table').waitFor();
   assert.equal(await page.locator('.customer-channel.instagram').textContent(),'Instagram');

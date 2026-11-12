@@ -114,3 +114,27 @@ input[type=date]::-webkit-calendar-picker-indicator,input[type=datetime-local]::
 @media(max-width:480px){.sales-workspace .board{grid-template-columns:1fr}.sales-workspace .board .lane{min-height:120px}}
 
 .ai-draft{padding:12px;margin:10px 0;border:1px solid #819e8d66;border-radius:12px;background:#819e8d15;max-height:200px;overflow:auto}.ai-draft p{white-space:pre-wrap;font-size:13px;line-height:1.6}.ai-draft button{margin:4px 8px 0 0}.ai-draft small{display:block}
+
+/* The inbox fills the viewport; only its conversation panes scroll. */
+@media(min-width:801px){
+ main.messages-page{height:100dvh;display:flex;flex-direction:column;overflow:auto}
+ .messages-page>header{flex:none}
+ .messages-page>.sales-workspace{flex:1;min-height:0;display:flex;flex-direction:column}
+ .messages-page .sales-workspace> :not(.messenger-shell){flex:none}
+ .messages-page .messenger-shell{flex:1;min-height:420px}
+ .messages-page .conversation-list{min-height:0;max-height:none;overflow:auto}
+ .messages-page .messenger-detail{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+ .messages-page .messenger-detail>.deal-heading,.messages-page .stage-track{flex:none}
+ .messages-page .deal-body{flex:1;min-height:0;overflow:auto}
+ .messages-page .deal-conversation{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+ .messages-page .chat-content{flex:1;display:flex;flex-direction:column;min-height:0;overflow:auto}
+ .messages-page .chat-messages{flex:1 1 0;min-height:80px;max-height:none;overflow:auto}
+ .messages-page .chat-content>:not(.chat-messages){flex:none}
+ .messages-page .deal-sidebar{min-height:0;overflow:auto}
+ .messages-page .welcome-chat{flex:1}
+}
+@media(min-width:801px) and (max-width:1200px){
+ .messages-page .deal-body{display:block}
+ .messages-page .deal-conversation{height:100%;min-height:360px}
+ .messages-page .deal-sidebar{max-height:none}
+}
