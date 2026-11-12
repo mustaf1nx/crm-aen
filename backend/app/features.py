@@ -83,8 +83,8 @@ def validate_file(data,mime):
     if not data or len(data)>MAX_FILE: raise HTTPException(413,'Максимальный размер файла — 16 МБ')
     if not ok: raise HTTPException(400,'Поддерживаются JPEG, PNG, WebP, MP4, M4A, MP3, OGG, WAV и PDF')
 
-def media_out(a):
-    token=m.jwt.encode({'sub':a.id,'aud':'media','exp':datetime.fromtimestamp((int(time.time())//900+3)*900,timezone.utc)},m.SECRET_KEY,algorithm='HS256')
+def media_out(a,user=None,delivery=False):
+    token=m.jwt.encode({'sub':a.id,'viewer':user.id if user else None,'delivery':delivery,'aud':'media','exp':datetime.fromtimestamp((int(time.time())//900+3)*900,timezone.utc)},m.SECRET_KEY,algorithm='HS256')
     return {'ready':bool(a.ready),'pending':bool(a.remote),'id':a.id,'name':a.name,'mime':a.mime,'purpose':a.purpose,'url':f'/api/media/{a.id}?ticket={token}','created_at':a.created_at.isoformat()}
 
 @m.app.get('/api/media/{asset_id}')
@@ -95,7 +95,11 @@ def get_media(asset_id:str,ticket:str,request:Request,db=Depends(m.get_db)):
     except Exception: raise HTTPException(403,'Ссылка истекла. Обновите переписку.')
     a=db.get(Asset,asset_id)
     if not a or not a.data: raise HTTPException(404,'Файл недоступен или ещё загружается')
-    data=a.data; headers={'Cache-Control':'private, max-age=60','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; sandbox",'Accept-Ranges':'bytes'}
+    if not payload.get('delivery'):
+        viewer=db.get(m.User,payload.get('viewer')) if payload.get('viewer') else None
+        if not viewer or not viewer.active:raise HTTPException(403,'Доступ к файлу закрыт')
+        m.conversation_access(db,a.lead_id,viewer)
+    data=a.data; headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; sandbox",'Accept-Ranges':'bytes'}
     r=request.headers.get('range','')
     if r:
         match=re.fullmatch(r'bytes=(\d*)-(\d*)',r)
@@ -115,7 +119,7 @@ def get_media(asset_id:str,ticket:str,request:Request,db=Depends(m.get_db)):
 async def upload(lead_id:int,request:Request,name:str='file',purpose:str='chat',db=Depends(m.get_db),user=Depends(m.current_user)):
     lead=db.get(m.Lead,lead_id)
     if not lead: raise HTTPException(404,'Сделка не найдена')
-    m.city_access(user,lead.city_id)
+    m.conversation_access(db,lead.id,user)
     if purpose not in ('chat','receipt','product'): raise HTTPException(400,'Неверный тип файла')
     data=bytearray()
     async for chunk in request.stream():
@@ -126,14 +130,14 @@ async def upload(lead_id:int,request:Request,name:str='file',purpose:str='chat',
     a=Asset(lead_id=lead.id,name=name.replace('\\','/').split('/')[-1][:180],mime=mime,data=bytes(data),purpose=purpose)
     db.add(a);db.flush()
     m.log(db,user,'lead.file',f'{lead.id}: Прикреплён '+('чек' if purpose=='receipt' else 'файл товара' if purpose=='product' else 'файл для сообщения'))
-    db.commit();return media_out(a)
+    db.commit();return media_out(a,user)
 
 @m.app.get('/api/leads/{lead_id}/files')
 def files(lead_id:int,db=Depends(m.get_db),user=Depends(m.current_user)):
     lead=db.get(m.Lead,lead_id)
     if not lead: raise HTTPException(404,'Сделка не найдена')
-    m.city_access(user,lead.city_id)
-    return [media_out(a) for a in db.scalars(select(Asset).where(Asset.lead_id==lead_id,Asset.purpose!='chat').order_by(Asset.created_at.desc()))]
+    m.conversation_access(db,lead.id,user)
+    return [media_out(a,user) for a in db.scalars(select(Asset).where(Asset.lead_id==lead_id,Asset.purpose!='chat').order_by(Asset.created_at.desc()))]
 
 _media_send_lock=asyncio.Lock()
 class MediaSend(BaseModel): asset_id:str; text:str=Field(default='',max_length=2000)
@@ -160,7 +164,7 @@ async def _send_media(cid,body,request,db,user):
         host='graph.facebook.com' if os.getenv('IG_AUTH_MODE','facebook')=='facebook' else 'graph.instagram.com'
         domain=os.getenv('RAILWAY_PUBLIC_DOMAIN')
         base='https://'+domain if domain else str(request.base_url).rstrip('/')
-        url=base+media_out(a)['url']
+        url=base+media_out(a,delivery=True)['url']
         try:
             async with httpx.AsyncClient(timeout=35) as client:
                 r=await client.post(f'https://{host}/{m.IG_GRAPH_VERSION}/{c.account_id}/messages',headers={'Authorization':'Bearer '+m.IG_ACCESS_TOKEN},json={'recipient':{'id':c.sender_id},'message':{'attachment':{'type':kind,'payload':{'url':url}}}})
@@ -230,7 +234,7 @@ def enrich():
 def unread(cid:int,db=Depends(m.get_db),user=Depends(m.current_user)):
     c=db.get(m.InstagramConversation,cid)
     if not c: raise HTTPException(404,'Диалог не найден')
-    m.city_access(user,c.city_id)
+    m.conversation_access(db,c.lead_id,user)
     latest=db.scalar(select(func.max(m.InstagramMessage.id)).where(m.InstagramMessage.conversation_id==cid,m.InstagramMessage.direction=='in'))
     if latest:
         state=db.get(m.InstagramReadState,(user.id,cid)) or m.InstagramReadState(user_id=user.id,conversation_id=cid)
@@ -240,10 +244,12 @@ def unread(cid:int,db=Depends(m.get_db),user=Depends(m.current_user)):
 @m.app.get('/api/analytics')
 def analytics(start:str='',end:str='',city_id:int|None=None,db=Depends(m.get_db),user=Depends(m.current_user)):
     try:
-        lo=datetime.combine(date.fromisoformat(start),datetime.min.time(),timezone.utc) if start else None
-        hi=datetime.combine(date.fromisoformat(end),datetime.min.time(),timezone.utc)+timedelta(days=1) if end else None
+        lo=datetime.combine(date.fromisoformat(start),datetime.min.time(),timezone(timedelta(hours=5))) if start else None
+        hi=datetime.combine(date.fromisoformat(end),datetime.min.time(),timezone(timedelta(hours=5)))+timedelta(days=1) if end else None
         if lo and hi and lo>=hi: raise ValueError()
     except ValueError: raise HTTPException(400,'Неверная дата')
+    lo=lo.astimezone(timezone.utc) if lo else None
+    hi=hi.astimezone(timezone.utc) if hi else None
     ls=select(m.Lead);osq=select(m.Order)
     city=city_id if user.role=='admin' else user.city_id
     if city is not None: ls=ls.where(m.Lead.city_id==city);osq=osq.where(m.Order.city_id==city)

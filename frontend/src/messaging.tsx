@@ -27,7 +27,7 @@ export function useInbox(token:string){
    if(gen!==generation.current)return;
    const fresh=seen.current&&list.find(c=>c.last_incoming_id>(seen.current!.get(c.id)||0));
    seen.current=new Map(list.map(c=>[c.id,c.last_incoming_id]));
-   setConversations(list);setError('');
+   setConversations(list);setNotice(old=>old&&list.some(c=>c.id===old.id)?old:null);setError('');
    if(fresh){
     setNotice(fresh);
     if(document.visibilityState==='hidden'&&typeof Notification!=='undefined'&&Notification.permission==='granted'){

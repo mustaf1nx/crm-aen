@@ -206,7 +206,7 @@ def leads(db:Session=Depends(get_db),user:User=Depends(current_user)):
     rows=list(db.scalars(q));counts={}
     customer_cache={c.id:c for c in db.scalars(select(Customer).where(Customer.id.in_([l.customer_id for l in rows])))}
     for lid,purpose,count in db.execute(select(features.Asset.lead_id,features.Asset.purpose,func.count()).where(features.Asset.lead_id.in_([l.id for l in rows]),features.Asset.purpose!='chat').group_by(features.Asset.lead_id,features.Asset.purpose)): counts[(lid,purpose)]=count
-    return [{**lead_out(x,db),'receipt_count':counts.get((x.id,'receipt'),0),'product_count':counts.get((x.id,'product'),0)} for x in rows]
+    return [{**lead_out(x,db),**({'notes':None} if user.role!='admin' and x.manager_id not in (None,user.id) else {}),'receipt_count':counts.get((x.id,'receipt'),0),'product_count':counts.get((x.id,'product'),0)} for x in rows]
 def lead_out(x,db):
     customer=db.get(Customer,x.customer_id)
     return {'id':x.id,'customer_id':x.customer_id,'customer_name':customer.name if customer else '—','city_id':x.city_id,'manager_id':x.manager_id,'stage':x.stage,'source':x.source,'notes':x.notes,'refusal_reason':x.refusal_reason,'created_at':x.created_at.isoformat()}
@@ -224,11 +224,19 @@ def create_lead(data:LeadIn,db:Session=Depends(get_db),user:User=Depends(current
 def update_stage(lead_id:int,data:StageIn,db:Session=Depends(get_db),user:User=Depends(current_user)):
     obj=db.get(Lead,lead_id)
     if not obj:raise HTTPException(404,'Лид не найден')
-    city_access(user,obj.city_id)
+    conversation_access(db,obj.id,user)
     if data.stage not in ('new','working','payment','success','refusal'):raise HTTPException(400,'Недопустимый этап')
     if data.stage=='refusal' and not (data.refusal_reason or '').strip():raise HTTPException(400,'Укажите причину отказа')
     old=obj.stage;obj.stage=data.stage;obj.refusal_reason=data.refusal_reason if data.stage=='refusal' else None
     log(db,user,'lead.stage',f'{lead_id}: {old} -> {data.stage}');db.commit();return lead_out(obj,db)
+def conversation_access(db,lead_id,user):
+    lead=db.get(Lead,lead_id)
+    if not lead:raise HTTPException(404,'Лид не найден')
+    city_access(user,lead.city_id)
+    if user.role!='admin' and lead.manager_id not in (None,user.id):
+        raise HTTPException(403,'Переписка доступна только ответственному и администратору')
+    return lead
+
 def owned_lead(db,lead_id,user,claim=False):
     # NOWAIT avoids blocking the async server while another reply is in flight.
     from sqlalchemy.exc import OperationalError
@@ -290,7 +298,7 @@ class LeadCommentIn(BaseModel): text:str=Field(min_length=1,max_length=2000)
 def add_lead_comment(lead_id:int,data:LeadCommentIn,db:Session=Depends(get_db),user:User=Depends(current_user)):
     lead=db.get(Lead,lead_id)
     if not lead:raise HTTPException(404,'Лид не найден')
-    city_access(user,lead.city_id)
+    conversation_access(db,lead.id,user)
     if not data.text.strip():raise HTTPException(400,'Введите комментарий')
     log(db,user,'lead.comment',f'{lead_id}: {data.text.strip()}');db.commit()
     return {'ok':True}
@@ -299,7 +307,7 @@ def add_lead_comment(lead_id:int,data:LeadCommentIn,db:Session=Depends(get_db),u
 def lead_activity(lead_id:int,db:Session=Depends(get_db),user:User=Depends(current_user)):
     lead=db.get(Lead,lead_id)
     if not lead:raise HTTPException(404,'Лид не найден')
-    city_access(user,lead.city_id)
+    conversation_access(db,lead.id,user)
     rows=db.execute(select(Audit,User.full_name).join(User,User.id==Audit.actor_id).where(
         Audit.action.in_(['lead.stage','lead.update','lead.comment','lead.file','lead.assign','lead.transfer']),Audit.detail.startswith(f'{lead_id}: ')
     ).order_by(Audit.id.desc()).limit(200)).all()
@@ -418,7 +426,7 @@ async def instagram_webhook(request:Request,background_tasks:BackgroundTasks):
 def instagram_conversations(background_tasks:BackgroundTasks,db:Session=Depends(get_db),user:User=Depends(current_user)):
     background_tasks.add_task(features.enrich)
     stmt=select(InstagramConversation).order_by(InstagramConversation.id.desc())
-    if user.role!='admin': stmt=stmt.where(InstagramConversation.city_id==user.city_id)
+    if user.role!='admin': stmt=stmt.join(Lead,Lead.id==InstagramConversation.lead_id).where(InstagramConversation.city_id==user.city_id,(Lead.manager_id.is_(None))|(Lead.manager_id==user.id))
     rows=list(db.scalars(stmt));ids=[c.id for c in rows]
     counts={r[0]:r for r in db.execute(select(InstagramMessage.conversation_id,func.count(),func.max(InstagramMessage.id)).where(InstagramMessage.conversation_id.in_(ids)).group_by(InstagramMessage.conversation_id))}
     reads={r.conversation_id:r.last_message_id for r in db.scalars(select(InstagramReadState).where(InstagramReadState.user_id==user.id,InstagramReadState.conversation_id.in_(ids)))}
@@ -443,7 +451,7 @@ class ReadIn(BaseModel): last_message_id:int=Field(gt=0)
 def read_conversation(conversation_id:int,data:ReadIn,db:Session=Depends(get_db),user:User=Depends(current_user)):
     conv=db.get(InstagramConversation,conversation_id)
     if not conv: raise HTTPException(404,'Диалог не найден')
-    city_access(user,conv.city_id)
+    conversation_access(db,conv.lead_id,user)
     message=db.get(InstagramMessage,data.last_message_id)
     if not message or message.conversation_id!=conversation_id:
         raise HTTPException(400,'Сообщение не принадлежит диалогу')
@@ -469,12 +477,12 @@ def instagram_status(user:User=Depends(current_user)):
 def conversation_messages(conversation_id:int,before_id:int=0,db:Session=Depends(get_db),user:User=Depends(current_user)):
     conv=db.get(InstagramConversation,conversation_id)
     if not conv: raise HTTPException(404,'Диалог не найден')
-    city_access(user,conv.city_id)
+    conversation_access(db,conv.lead_id,user)
     query=select(InstagramMessage).where(InstagramMessage.conversation_id==conversation_id)
     if before_id: query=query.where(InstagramMessage.id<before_id)
     rows=list(reversed(list(db.scalars(query.order_by(InstagramMessage.id.desc()).limit(200)))))
     assets={}
-    for a in db.scalars(select(features.Asset).where(features.Asset.message_id.in_([r.id for r in rows]))): assets.setdefault(a.message_id,[]).append(features.media_out(a))
+    for a in db.scalars(select(features.Asset).where(features.Asset.message_id.in_([r.id for r in rows]))): assets.setdefault(a.message_id,[]).append(features.media_out(a,user))
     return [{'id':r.id,'direction':r.direction,'text':r.text,'created_at':r.created_at.isoformat(),'attachments':assets.get(r.id,[])} for r in rows]
 
 class ReplyIn(BaseModel): text:str=Field(min_length=1,max_length=2000)

@@ -46,7 +46,7 @@ const server=http.createServer((req,res)=>{
    else if(endpoint==='/api/whatsapp/connect'){waConnects++;data={state:'connecting'};}
    else if(endpoint==='/api/stats')data={leads:1};
    else if(endpoint==='/api/instagram/status')data={configured:true,demo_enabled:false};
-   else if(endpoint==='/api/inbox/conversations')data=[conv()];
+   else if(endpoint==='/api/inbox/conversations')data=currentUser.role==='admin'||!lead.manager_id||lead.manager_id===currentUser.id?[conv()]:[];
    else if(endpoint.endsWith('/messages'))data=messages;
    else if(endpoint.endsWith('/read')){read=Math.max(read,route.request().postDataJSON().last_message_id);data={ok:true};}
    else if(endpoint.endsWith('/reply')){replyCalls++;messages.push({id:messages.length+1,direction:'out',text:route.request().postDataJSON().text,created_at:new Date().toISOString()});data={ok:true};}
@@ -163,20 +163,33 @@ const server=http.createServer((req,res)=>{
   assert.equal(await page.getByText('Автоматически из Instagram Direct',{exact:true}).count(),0);
   assert.equal(await page.locator('.customer-table').evaluate(e=>getComputedStyle(e).borderRadius),'20px');
   if(process.env.QA_DIR)await page.screenshot({path:path.join(process.env.QA_DIR,'aen-customers.png'),fullPage:true});
+  await page.getByRole('button',{name:'Воронка продаж',exact:true}).click();
+  await page.getByRole('button',{name:'Сегодня',exact:true}).click();
+  assert.equal(await page.locator('[data-lead-id="1"]').count(),1);
+  await page.getByRole('button',{name:'Вчера',exact:true}).click();
+  assert.equal(await page.locator('[data-lead-id="1"]').count(),0);
+  await page.getByRole('button',{name:'Всё время',exact:true}).click();
+  await page.locator('[data-lead-id="1"]').click();
+  const composer=await page.locator('dialog .chat-compose').boundingBox();
+  const modal=await page.locator('dialog[open]').boundingBox();
+  assert(modal.y+modal.height-composer.y-composer.height<55,'No empty space below composer');
+  await page.getByRole('button',{name:'Закрыть переписку'}).click();
   lead.manager_id=1;currentUser={id:2,role:'manager',city_id:1,full_name:'Manager'};
   await page.reload();
   await page.locator('[data-lead-id="1"]').click();
-  await page.getByText('Только просмотр · ответить может ответственный или администратор').waitFor();
-  assert(await page.getByLabel('Ответ клиенту',{exact:true}).isDisabled());
+  await page.getByText('Переписка закрыта',{exact:true}).waitFor();
+  assert.equal(await page.getByLabel('Ответ клиенту',{exact:true}).count(),0);
+  assert.equal(await page.getByRole('log',{name:'Переписка'}).count(),0);
   assert.equal(await page.getByLabel('Передать клиента',{exact:true}).count(),0);
   await page.getByRole('button',{name:'Закрыть переписку'}).click();
   lead.manager_id=2;await page.evaluate(()=>window.dispatchEvent(new Event('aen-change')));
   await page.reload();await page.locator('[data-lead-id="1"]').click();
   await page.getByLabel('Передать клиента',{exact:true}).selectOption('1');
   await page.getByRole('button',{name:'Передать',exact:true}).click();
-  await page.getByText('Только просмотр · ответить может ответственный или администратор').waitFor();
+  await page.getByText('Переписка закрыта',{exact:true}).waitFor();
   assert.equal(transferCalls,1);assert.equal(lead.manager_id,1);
-  assert(await page.getByLabel('Ответ клиенту',{exact:true}).isDisabled());
+  assert.equal(await page.getByLabel('Ответ клиенту',{exact:true}).count(),0);
+  assert.equal(await page.getByRole('log',{name:'Переписка'}).count(),0);
   console.log('PASS: funnel chat, read badge, mocked reply, stage editing, live notification, mobile dialog, inbox');
  }finally{await browser.close();server.close();}
 })().catch(e=>{console.error(e);server.close();process.exitCode=1;});

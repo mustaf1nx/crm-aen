@@ -66,3 +66,26 @@ input[type=date]::-webkit-calendar-picker-indicator,input[type=datetime-local]::
 [data-theme=dark] .chat-owner strong{color:#e0bb86}
 .lead-transfer{padding:14px;margin-bottom:18px;border:1px solid #809c872e;border-radius:14px;background:#809c8709}
 .lead-transfer .field{margin-bottom:8px}
+
+.date-presets{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.date-presets button{border:1px solid #82918935;background:#ffffffb0;color:#506157;border-radius:99px;padding:8px 14px;font-size:13px}
+.date-presets button[aria-pressed=true]{background:#dcece2;color:#28503a;border-color:#739e85}
+[data-theme=dark] .date-presets button{background:#2b3035;color:#c8d3cd;border-color:#ffffff18}
+[data-theme=dark] .date-presets button[aria-pressed=true]{background:#354e41;color:#d8eddf;border-color:#7da28c}
+.date-filter{flex:1;display:flex;align-items:center;flex-wrap:wrap;gap:12px}
+.date-range{display:flex;flex-wrap:wrap;gap:12px;width:100%}
+.date-range label{display:flex;align-items:center;gap:8px;font-size:12px}
+.private-chat{margin:auto;padding:32px;min-height:220px}
+@media(min-width:801px){
+ .deal-dialog[open]{height:min(860px,94dvh);max-height:94dvh;overflow:hidden}
+ .deal-dialog-inner{height:100%;min-height:0;display:flex;flex-direction:column}
+ .deal-dialog .deal-heading,.deal-dialog .stage-track{flex:none}
+ .deal-dialog .deal-body{flex:1;height:auto;min-height:0;overflow:hidden;grid-template-columns:minmax(0,1fr) 310px}
+ .deal-dialog .deal-sidebar{height:100%;max-height:100%;overflow-y:auto}
+ .deal-dialog .deal-conversation{height:100%;min-height:0;overflow:hidden}
+ .deal-dialog .chat-content{flex:1;min-height:0;overflow:hidden}
+ .deal-dialog .chat-messages{flex:1 1 0;min-height:60px;height:auto;max-height:none;overflow-y:auto}
+ .deal-dialog .chat-content>.compose-access,.deal-dialog .chat-owner,.deal-dialog .chat-tools{flex:none}
+ .deal-dialog .chat-compose{margin-bottom:0}
+}
+@media(max-width:800px){.deal-dialog-inner{height:auto}.deal-dialog .deal-body{height:auto;min-height:0}.date-presets button{padding:8px 11px}.date-filter{gap:6px}}
