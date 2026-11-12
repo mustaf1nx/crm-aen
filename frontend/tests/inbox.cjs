@@ -16,7 +16,7 @@ const server=http.createServer((req,res)=>{
  const browser=await chromium.launch({channel:'chrome',headless:true});
  try{
   const page=await browser.newPage({viewport:{width:1512,height:982}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
-  let read=0,replyCalls=0;
+  let read=0,replyCalls=0,stageCalls=0,failStage=false;
   let savedDetails=null,waConnects=0,mediaCalls=0;const files=[];
   const photo={id:"photo1",name:"product.png",mime:"image/png",url:"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j4l0AAAAASUVORK5CYII="};
   const lead={id:1,customer_id:1,customer_name:'Тестовый клиент',city_id:1,stage:'new',source:'instagram',created_at:new Date().toISOString()};
@@ -35,7 +35,7 @@ const server=http.createServer((req,res)=>{
    else if(endpoint.endsWith('/media')){mediaCalls++;messages.push({id:messages.length+1,direction:'out',text:'',created_at:new Date().toISOString(),attachments:[photo]});data={ok:true};}
    else if(endpoint.endsWith('/unread')){read=0;data={ok:true};}
    else if(endpoint.endsWith('/details')){savedDetails=route.request().postDataJSON();data={ok:true};}
-   else if(endpoint.endsWith('/stage')){Object.assign(lead,route.request().postDataJSON());data=lead;}
+   else if(endpoint.endsWith('/stage')){stageCalls++;if(failStage){await route.fulfill({status:500,json:{detail:'Test stage failure'}});return;}Object.assign(lead,route.request().postDataJSON());data=lead;}
    else if(endpoint.endsWith('/activity'))data=activity;
    else if(endpoint.endsWith('/comments')){activity.unshift({id:1,text:route.request().postDataJSON().text,action:'lead.comment',actor:'Tester',created_at:new Date().toISOString()});data={ok:true};}
    else if(endpoint==='/api/whatsapp/status')data={state:'disconnected'};
@@ -59,6 +59,25 @@ const server=http.createServer((req,res)=>{
   await page.getByLabel('Сделки с').fill('2099-01-01');assert.equal(await page.locator('.lead-card').count(),0);
   await page.getByRole('button',{name:'Сбросить',exact:true}).click();
   await page.getByRole('button',{name:'⚙ Расширенные фильтры'}).click();
+  const dragTo=async(stage)=>{
+   const card=page.locator('.board .lead-card');await card.scrollIntoViewIfNeeded();
+   const a=await card.boundingBox(),b=await page.locator(`[data-stage="${stage}"]`).boundingBox();
+   await page.mouse.move(a.x+50,a.y+45);await page.mouse.down();await page.mouse.move(b.x+80,b.y+60,{steps:12});
+   assert.equal(await page.locator('.card-drag-overlay').count(),1);
+   assert.equal(await card.evaluate(el=>getComputedStyle(el).visibility),'hidden');
+   assert.equal(await page.locator('.card-drag-overlay').evaluate(el=>getComputedStyle(el).opacity),'1');
+  };
+  await dragTo('working');await page.mouse.up();
+  await page.waitForFunction(()=>!!document.querySelector('[data-stage="working"] [data-lead-id="1"]'));
+  await page.waitForTimeout(150);assert.equal(stageCalls,1);assert.equal(lead.stage,'working');
+  assert.equal(await page.locator('dialog[open]').count(),0);assert.equal(await page.locator('.card-drag-overlay').count(),0);
+  await dragTo('new');await page.keyboard.press('Escape');await page.mouse.up();
+  assert.equal(stageCalls,1);assert.equal(await page.locator('.card-drag-overlay').count(),0);
+  failStage=true;await dragTo('new');await page.mouse.up();await page.getByText('Test stage failure',{exact:true}).waitFor();
+  assert.equal(await page.locator('[data-stage="working"] [data-lead-id="1"]').count(),1);
+  failStage=false;await dragTo('new');await page.mouse.up();
+  await page.waitForFunction(()=>!!document.querySelector('[data-stage="new"] [data-lead-id="1"]'));
+  await page.waitForTimeout(150);
   await page.locator('.lead-card').click();
   await page.locator('dialog[open] .bubble').waitFor();
   const chatBounds=await page.locator('dialog .deal-conversation').boundingBox(),detailBounds=await page.locator('dialog .deal-sidebar').boundingBox();assert(chatBounds.width>detailBounds.width&&chatBounds.x<detailBounds.x,'Chat must be primary, left column');
