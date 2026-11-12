@@ -7,6 +7,7 @@ import {Analytics,useRealtime} from './enhancements';
 import './enhancements.css';
 import './design.css';
 import './theme.css';
+import './refinements.css';
 import {ThemeToggle} from './theme';
 import {Workspace} from './workspace';
 import {api,useInbox,ChatPanel,ChatWindow} from './messaging';
