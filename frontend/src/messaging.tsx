@@ -46,7 +46,7 @@ export function useInbox(token:string){
   return()=>{generation.current++;window.clearInterval(interval);document.removeEventListener('visibilitychange',visible);window.removeEventListener('aen-change',refresh);};
  },[token,refresh]);
  const unread=conversations.reduce((n,c)=>n+c.unread_count,0);
- useEffect(()=>{document.title=(unread?`(${unread}) `:'')+'AEN CRM';return()=>{document.title='AEN CRM';};},[unread]);
+ useEffect(()=>{document.title=(unread?`(${unread}) `:'')+'AEN Connect';return()=>{document.title='AEN Connect';};},[unread]);
  const enableNotifications=async()=>{
   if(typeof Notification==='undefined')return;
   try{setNotifications(await Notification.requestPermission());}catch{setNotifications('unsupported');}

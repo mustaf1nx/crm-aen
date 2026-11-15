@@ -55,7 +55,7 @@ const server=http.createServer((req,res)=>{
    await route.fulfill({json:data});
   });
   await page.goto(`http://127.0.0.1:${server.address().port}`);
-  await page.waitForFunction(()=>document.title.includes('AEN CRM'));
+  await page.waitForFunction(()=>document.title.includes('AEN Connect'));
   assert.equal(await page.getByRole('button',{name:'Всё время',exact:true}).getAttribute('aria-pressed'),'true');
   await page.getByRole('button',{name:'Вчера',exact:true}).click();
   for(const label of ['Непрочитанные','В работе','Ждут ответа']){
@@ -129,7 +129,7 @@ const server=http.createServer((req,res)=>{
   await page.locator('dialog[open] .bubble').waitFor();
   const chatBounds=await page.locator('dialog .deal-conversation').boundingBox(),detailBounds=await page.locator('dialog .deal-sidebar').boundingBox();assert(chatBounds.width>detailBounds.width&&chatBounds.x<detailBounds.x,'Chat must be primary, left column');
   assert.equal(await page.locator('dialog .bubble').innerText().then(s=>s.includes('Есть размер M?')),true);
-  await page.waitForFunction(()=>document.title==='AEN CRM');
+  await page.waitForFunction(()=>document.title==='AEN Connect');
   await page.getByRole('button',{name:'✦ Предложить ответ',exact:true}).click();
   await page.getByText('Подскажите нужный цвет.',{exact:true}).waitFor();
   assert.equal(replyCalls,0);
@@ -154,13 +154,13 @@ const server=http.createServer((req,res)=>{
   await page.getByRole('button',{name:'Добавить комментарий'}).click();
   await page.locator('.timeline').getByText('Позвонить вечером').waitFor();
   await page.getByRole('button',{name:'Переписка',exact:true}).click();
-  await page.waitForFunction(()=>document.title==='AEN CRM');
+  await page.waitForFunction(()=>document.title==='AEN Connect');
   if(process.env.QA_DIR)await page.screenshot({path:path.join(process.env.QA_DIR,'aen-deal.png'),fullPage:true});
   await page.keyboard.press('Escape');assert.equal(await page.locator('dialog[open]').count(),0);
   messages.push({id:messages.length+1,direction:'in',text:'Спасибо!',created_at:new Date().toISOString()});
   await page.evaluate(()=>window.dispatchEvent(new Event('aen-change')));
   await page.locator('.message-notice').waitFor({timeout:10000});
-  await page.waitForFunction(()=>document.title==='(1) AEN CRM');
+  await page.waitForFunction(()=>document.title==='(1) AEN Connect');
   await page.setViewportSize({width:390,height:844});
   await page.locator('.message-notice button').first().click();
   await page.getByText('Спасибо!',{exact:true}).last().waitFor();
