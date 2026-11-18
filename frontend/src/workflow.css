@@ -66,7 +66,7 @@ main.messages-page{display:flex;flex-direction:column;height:100dvh;min-height:7
 .saved-replies .text-link{font-size:11px}
 .quick-editor form>.text-link{margin-left:15px}
 [data-theme=dark] .quick-editor{background:#23262a}
-@media(max-width:1400px) and (min-width:801px){
+@media(max-width:1280px) and (min-width:801px){
  .deal-body.details-open>.deal-sidebar{position:absolute;inset:0 0 0 auto;width:300px;max-width:100%;z-index:3;box-shadow:-8px 0 24px #0002;grid-column:auto;grid-row:auto}
  .messenger-detail .deal-body.details-open,.deal-dialog .deal-body.details-open{grid-template-columns:minmax(0,1fr)}
  .drawer-close{display:flex;margin:0 0 14px auto}

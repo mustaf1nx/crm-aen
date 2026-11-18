@@ -1,0 +1,56 @@
+.layout{--nav-width:240px}
+.layout.nav-collapsed{--nav-width:76px}
+.layout>.sidebar{width:var(--nav-width);flex:0 0 auto;display:flex;flex-direction:column;padding:20px 12px;overflow:hidden;transition:width .18s ease}
+.layout>main{width:calc(100% - var(--nav-width));flex:1;min-width:0}
+.sidebar-brand{display:flex;align-items:center;justify-content:space-between;gap:8px;flex:none;margin-bottom:24px}
+.sidebar .sidebar-brand .brand-logo{padding:0;margin:0 8px;width:80px;height:80px;flex:none}
+.sidebar .sidebar-brand .brand-logo img{width:270%;height:270%}
+.nav-toggle{flex:none;width:34px;height:34px;border:1px solid var(--border);border-radius:9px;display:grid;place-items:center}
+.navigation-links{display:flex;flex-direction:column;min-height:0;overflow-y:auto;overflow-x:hidden;gap:3px;flex:1}
+.navigation-links .nav{width:100%;position:relative;text-align:left;flex:none;min-height:42px;margin:0}
+.nav-label{min-width:0}
+.sidebar .side-bottom{flex:none;padding-top:16px;margin-top:14px}
+.sidebar .user-line{padding:16px 4px;gap:10px}
+.account-copy{min-width:0}
+.account-copy b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sidebar .side-bottom .nav{width:100%}
+.nav-collapsed>.sidebar .sidebar-brand{flex-direction:column;gap:14px}
+.nav-collapsed>.sidebar .sidebar-brand .brand-logo{width:44px;height:44px;margin:0}
+.nav-collapsed>.sidebar .nav{justify-content:center;padding:10px;min-height:44px}
+.nav-collapsed>.sidebar :is(.nav-label,.account-copy){display:none}
+.nav-collapsed>.sidebar .user-line{justify-content:center;padding:14px 0}
+.nav-collapsed>.sidebar .avatar{width:36px;height:36px;flex:none}
+.nav-collapsed>.sidebar .nav .unread-badge{position:absolute;right:1px;top:1px;min-width:16px;padding:1px 4px;font-size:9px;line-height:15px;border:2px solid #f0f1ec}
+[data-theme=dark] .nav-collapsed>.sidebar .nav .unread-badge{border-color:#20292c}
+.mobile-nav-bar{display:none}
+.deal-heading-actions{margin-left:auto;display:flex;align-items:center;gap:10px;flex:none}
+.deal-heading .deal-heading-actions .iconbtn{margin-left:0}
+.deal-details-toggle{display:flex;align-items:center;gap:7px;white-space:nowrap;padding:9px 12px}
+.deal-details-toggle[aria-expanded=true]{border-color:#7f9d8d;background:#7f9d8d20}
+.deal-details-toggle b{display:grid;place-items:center;min-width:20px;height:20px;border-radius:6px;background:#7f9d8d26;font-size:11px}
+.deal-sidebar-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:20px;padding-bottom:12px;border-bottom:1px solid var(--border);font-size:13px}
+.deal-sidebar-heading .iconbtn{display:grid;place-items:center;flex:none;width:30px;height:30px;border-radius:8px}
+.deal-sidebar-heading .iconbtn:hover{background:#7f9d8d20}
+.deal-conversation>.workspace-empty{flex:1}
+@media(prefers-reduced-motion:reduce){.layout>.sidebar{transition:none}}
+@media(max-width:800px){
+ .layout>.sidebar{display:none}
+ .layout>main{width:100%}
+ .mobile-nav-bar{display:flex;align-items:center;gap:12px;padding:12px 18px;background:#f0f1ecee;border-bottom:1px solid var(--border);height:56px}
+ [data-theme=dark] .mobile-nav-bar{background:#141b23eb}
+ .mobile-nav-bar>span{font-size:15px;font-weight:600}
+ .mobile-navigation[open]{margin:0 auto 0 0;width:min(310px,88vw);height:100dvh;max-height:100dvh;padding:0;border:0;border-right:1px solid var(--border);border-radius:0;background:#f0f1ec;color:#242722}
+ .mobile-navigation::backdrop{background:#07111b88}
+ html:has(.mobile-navigation[open]){overflow:hidden}
+ [data-theme=dark] .mobile-navigation[open]{background:#1b2229;color:#e7e9ec}
+ .mobile-menu-inner{display:flex;flex-direction:column;height:100%;padding:20px 14px}
+ .mobile-menu-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:24px;padding:0 8px}
+ .mobile-navigation .nav{width:100%;font-size:14px;white-space:normal;justify-content:flex-start;padding:12px;gap:10px}
+ .mobile-navigation .side-bottom{display:block;flex:none;padding:16px 8px 0}
+ .mobile-navigation .user-line{padding:14px 0}
+ .mobile-navigation .account-copy{display:block}
+ .deal-heading-actions{gap:5px}
+ .deal-details-toggle{padding:8px}
+ .deal-details-toggle>span{display:none}
+ .deal-heading>div:nth-child(2){flex:1}
+}
