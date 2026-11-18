@@ -1,6 +1,7 @@
 import {QuickReplies} from './QuickReplies';
 import {MediaView,uploadFile,accept,Media} from './enhancements';
-import {useCallback,useEffect,useLayoutEffect,useRef,useState} from 'react';
+import {Fragment,useCallback,useEffect,useLayoutEffect,useRef,useState} from 'react';
+import {Paperclip,Sparkles} from 'lucide-react';
 
 export type Conversation={can_reply?:boolean;manager_id?:number;manager_name?:string;id:number;channel?:string;lead_id:number;customer_name:string;city_id:number;last_message:string;message_count:number;unread_count:number;last_incoming_id:number;last_direction?:string;last_message_id?:number;last_at?:string};
 type Message={id:number;direction:string;text:string;created_at:string;attachments?:Media[]};
@@ -61,6 +62,15 @@ export function useInbox(token:string){
 export function ChatPanel({conversation,onRead}:{conversation:Conversation;onRead:()=>Promise<void>}){
  const [messages,setMessages]=useState<Message[]>([]);
  const [reply,setReply]=useState('');
+ const composer=useRef<HTMLTextAreaElement>(null);
+ useLayoutEffect(()=>{
+  const el=composer.current;if(!el)return;
+  let width=el.clientWidth;
+  const resize=()=>{el.style.height='0px';el.style.height=Math.min(104,Math.max(42,el.scrollHeight+2))+'px'};
+  resize();
+  const observer=new ResizeObserver(()=>{if(el.clientWidth!==width){width=el.clientWidth;resize()}});
+  observer.observe(el);return()=>observer.disconnect();
+ },[reply]);
  const [aiBusy,setAiBusy]=useState(false),[aiDraft,setAiDraft]=useState('');
  const makeDraft=async()=>{if(aiBusy)return;setAiBusy(true);setError('');setAiDraft('');try{const data=await api(`/inbox/conversations/${conversation.id}/ai-draft`,'POST',{});setAiDraft(data.text);}catch(e:any){setError(e.message);}finally{setAiBusy(false);}};
  const [file,setFile]=useState<File|null>(null),[uploaded,setUploaded]=useState<Media|null>(null),[manualUnread,setManualUnread]=useState(false);
@@ -76,8 +86,29 @@ export function ChatPanel({conversation,onRead}:{conversation:Conversation;onRea
  const bottom=useRef<HTMLDivElement>(null);
  const restoreScroll=useRef<{height:number;top:number}|null>(null);
  const scrollBox=useRef<HTMLDivElement>(null);const atBottom=useRef(true);
+ const scrollSize=useRef({width:0,height:0});
+ useEffect(()=>{
+  const box=scrollBox.current;if(!box)return;
+  const observer=new ResizeObserver(()=>{
+   scrollSize.current={width:box.clientWidth,height:box.clientHeight};
+   if(atBottom.current)box.scrollTop=box.scrollHeight;
+  });
+  observer.observe(box);return()=>observer.disconnect();
+ },[]);
  useEffect(()=>{const loaded=()=>{if(atBottom.current)scrollBox.current?.scrollTo({top:scrollBox.current.scrollHeight});};window.addEventListener('aen-media-ready',loaded);return()=>window.removeEventListener('aen-media-ready',loaded);},[]);
  const refreshRef=useRef<()=>Promise<void>>(async()=>{});
+ const handleScroll=()=>{
+  const el=scrollBox.current;if(!el)return;
+  // Layout changes must not look like the user scrolling away from the latest message.
+  if(el.clientWidth!==scrollSize.current.width||el.clientHeight!==scrollSize.current.height){
+   scrollSize.current={width:el.clientWidth,height:el.clientHeight};
+   if(atBottom.current)el.scrollTop=el.scrollHeight;
+   return;
+  }
+  const wasBottom=atBottom.current;
+  atBottom.current=el.scrollHeight-el.scrollTop-el.clientHeight<70;
+  if(!wasBottom&&atBottom.current)void refreshRef.current();
+ };
  const onReadRef=useRef(onRead);onReadRef.current=onRead;
  useEffect(()=>{
   let alive=true,busy=false,queued=false,lastRead=0,initial=true;
@@ -114,18 +145,18 @@ export function ChatPanel({conversation,onRead}:{conversation:Conversation;onRea
   catch(e:any){setError(e.message);}finally{setSending(false);}
  };
  return <div className="chat-content">
-  <div className="chat-tools"><button className="text-link" onClick={async()=>{try{unreadRef.current=true;await api(`/inbox/conversations/${conversation.id}/unread`,'POST',{});setManualUnread(true);await onReadRef.current();}catch(e:any){unreadRef.current=false;setError(e.message);}}}>{manualUnread?'Отмечен непрочитанным':'Отметить непрочитанным'}</button></div><p className="muted">Всего сообщений: {conversation.message_count} · {conversation.channel==='whatsapp'?'WhatsApp':'Instagram'}</p>
-  <div ref={scrollBox} onScroll={()=>{const el=scrollBox.current;if(el){const wasBottom=atBottom.current;atBottom.current=el.scrollHeight-el.scrollTop-el.clientHeight<70;if(!wasBottom&&atBottom.current)void refreshRef.current();}}} className="chat-messages" role="log" aria-label="Переписка">
+  <div className="chat-toolbar"><span className="chat-summary" title={conversation.manager_name?`Ответственный: ${conversation.manager_name}`:'Общий список · первый ответ закрепит клиента за вами'}>{conversation.message_count} сообщ. <i>·</i> {conversation.manager_name||'Общий список'}</span><button className="text-link" onClick={async()=>{try{unreadRef.current=true;await api(`/inbox/conversations/${conversation.id}/unread`,'POST',{});setManualUnread(true);await onReadRef.current();}catch(e:any){unreadRef.current=false;setError(e.message);}}}>{manualUnread?'Отмечен непрочитанным':'Отметить непрочитанным'}</button></div>
+  <div ref={scrollBox} onScroll={handleScroll} className="chat-messages" role="log" aria-label="Переписка">
    {more&&<button className="secondary" disabled={olderBusy} onClick={async()=>{setOlderBusy(true);try{const rows=await api(`/inbox/conversations/${conversation.id}/messages?before_id=${messages[0]?.id||0}`);atBottom.current=false;const box=scrollBox.current;if(box)restoreScroll.current={height:box.scrollHeight,top:box.scrollTop};merge(rows);setMore(rows.length===200);}catch(e:any){setError(e.message);}finally{setOlderBusy(false);}}}>{olderBusy?'Загрузка…':'Ранние сообщения'}</button>}
    {loading&&<p>Загрузка переписки…</p>}
    {!loading&&!messages.length&&!error&&<p>Сообщений пока нет.</p>}
-   {messages.map(m=><div key={m.id} className={'bubble '+(m.direction==='out'?'bubble-out':'')}><span className="sr-only">{m.direction==='out'?'Менеджер: ':'Клиент: '} </span><div>{m.text}</div>{m.attachments?.map(a=><MediaView key={a.id} file={a}/>)}<time>{new Date(m.created_at).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</time></div>)}
+   {messages.map((m,index)=>{const sentAt=new Date(m.created_at);const newDay=!index||sentAt.toDateString()!==new Date(messages[index-1].created_at).toDateString();return <Fragment key={m.id}>{newDay&&<div className="chat-day"><span>{sentAt.toLocaleDateString('ru-RU',{day:'numeric',month:'long',...(sentAt.getFullYear()!==new Date().getFullYear()?{year:'numeric'}:{})})}</span></div>}<div className={'bubble '+(m.direction==='out'?'bubble-out':'')}><span className="sr-only">{m.direction==='out'?'Менеджер: ':'Клиент: '} </span><span className="message-text">{m.text}</span>{m.attachments?.map(a=><MediaView key={a.id} file={a}/>)}<time dateTime={m.created_at} title={sentAt.toLocaleString('ru-RU')}>{sentAt.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})}</time></div></Fragment>})}
    <div ref={bottom}/>
   </div>
   {error&&<div className="error" role="alert">{error}</div>}
-  <div className="chat-owner">{conversation.manager_name?`Ответственный: ${conversation.manager_name}`:"Общий список · первый ответ закрепит клиента за вами"}{conversation.can_reply===false&&<strong>Только просмотр · ответить может ответственный или администратор</strong>}</div><fieldset className="compose-access" disabled={conversation.can_reply===false}><div className="quick-replies"><button type="button" className="secondary" disabled={aiBusy||sending} onClick={makeDraft}>{aiBusy?'Готовлю ответ…':'✦ Предложить ответ'}</button><QuickReplies disabled={sending} onSelect={text=>editReply(reply.trim()?reply+"\n"+text:text)}/><label className="secondary file-button">＋ Фото / аудио / видео<input aria-label="Прикрепить файл в чат" type="file" accept={accept} disabled={sending} onChange={e=>{setFile(e.target.files?.[0]||null);setUploaded(null);e.target.value='';}}/></label></div>
+  <>{conversation.can_reply===false&&<div className="chat-owner">Только просмотр · ответить может ответственный или администратор</div>}</><fieldset className="compose-access" disabled={conversation.can_reply===false}><div className="quick-replies"><button type="button" className="secondary" disabled={aiBusy||sending} aria-label="Предложить ответ ИИ" title="Предложить ответ ИИ" onClick={makeDraft}><Sparkles size={14}/>{aiBusy?'Готовлю…':'Ответ ИИ'}</button><QuickReplies disabled={sending} onSelect={text=>editReply(reply.trim()?reply+"\n"+text:text)}/><label className="secondary file-button" title="Прикрепить фото, аудио или видео"><Paperclip size={16}/><span className="sr-only">Фото / аудио / видео</span><input aria-label="Прикрепить файл в чат" type="file" accept={accept} disabled={sending} onChange={e=>{setFile(e.target.files?.[0]||null);setUploaded(null);e.target.value='';}}/></label></div>
   {file&&<div className="pending-file">{file.name} · {(file.size/1024/1024).toFixed(1)} МБ <button onClick={()=>{setFile(null);setUploaded(null);}} disabled={sending}>Убрать</button></div>}
-  <>{aiDraft&&<div className="ai-draft"><strong>Черновик ИИ</strong><p>{aiDraft}</p><button type="button" className="secondary" disabled={sending||!!reply.trim()} onClick={()=>{editReply(aiDraft);setAiDraft('');}}>Вставить в ответ</button><button type="button" className="text-link" onClick={()=>setAiDraft('')}>Закрыть</button>{reply.trim()&&<small>Сначала сохраните или очистите свой текст ответа.</small>}</div>}</><form className="chat-compose" onSubmit={send}><textarea aria-label="Ответ клиенту" placeholder="Напишите сообщение… Ctrl+Enter — отправить" value={reply} maxLength={2000} onChange={e=>editReply(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();e.currentTarget.form?.requestSubmit();}}} disabled={sending}/><button className="primary" disabled={sending||loading||(!reply.trim()&&!file)}>{sending?'Отправка…':'Отправить'}</button></form></fieldset>
+  <>{aiDraft&&<div className="ai-draft"><strong>Черновик ИИ</strong><p>{aiDraft}</p><button type="button" className="secondary" disabled={sending||!!reply.trim()} onClick={()=>{editReply(aiDraft);setAiDraft('');}}>Вставить в ответ</button><button type="button" className="text-link" onClick={()=>setAiDraft('')}>Закрыть</button>{reply.trim()&&<small>Сначала сохраните или очистите свой текст ответа.</small>}</div>}</><form className="chat-compose" onSubmit={send}><textarea ref={composer} rows={1} aria-label="Ответ клиенту" title="Ctrl+Enter — отправить" placeholder="Напишите сообщение…" value={reply} maxLength={2000} onChange={e=>editReply(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();e.currentTarget.form?.requestSubmit();}}} disabled={sending}/><button className="primary" disabled={sending||loading||(!reply.trim()&&!file)}>{sending?'Отправка…':'Отправить'}</button></form></fieldset>
   {file&&<small className="composer-hint">До 16 МБ · Файл и текст отправляются отдельными сообщениями</small>}
  </div>;
 }
