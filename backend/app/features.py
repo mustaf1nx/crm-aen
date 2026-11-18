@@ -10,6 +10,15 @@ from pydantic import BaseModel, Field
 from . import main as m
 
 MAX_FILE=16*1024*1024
+LEGACY_WHATSAPP_ATTACHMENT='[Вложение — откройте WhatsApp на телефоне]'
+MISSING_WHATSAPP_ATTACHMENT='Вложение недоступно в CRM. Посмотрите его в WhatsApp.'
+
+def message_display_text(text,has_attachments):
+    # Correct old placeholders at read time, without rewriting customer messages.
+    if text==LEGACY_WHATSAPP_ATTACHMENT:
+        return '' if has_attachments else MISSING_WHATSAPP_ATTACHMENT
+    return text
+
 class Asset(m.Base):
     __tablename__='media_assets'
     id:Mapped[str]=mapped_column(String(40),primary_key=True,default=lambda:uuid.uuid4().hex)
@@ -177,10 +186,12 @@ async def _send_media(cid,body,request,db,user):
     return {'ok':True}
 
 def attach_incoming(db,msg,lead_id,attachments):
+    attached=0
     for item in attachments[:10]:
         if item.get('asset_id'):
             a=db.get(Asset,item['asset_id'])
-            if a and a.lead_id==lead_id and a.purpose=='chat' and not a.message_id: a.message_id=msg.id
+            if a and a.lead_id==lead_id and a.purpose=='chat' and not a.message_id:
+                a.message_id=msg.id;attached+=1
             continue
         mime=item.get('mime','application/octet-stream').split(';')[0]
         data=None;remote=None
@@ -191,6 +202,8 @@ def attach_incoming(db,msg,lead_id,attachments):
         elif safe_remote(item.get('url','')): remote=item['url']
         else: continue
         db.add(Asset(lead_id=lead_id,message_id=msg.id,name=item.get('name','Вложение')[:180],mime=mime,data=data,remote=remote))
+        attached+=1
+    return attached
 
 _profile_lock=threading.Lock()
 def enrich():

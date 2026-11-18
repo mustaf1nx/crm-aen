@@ -460,7 +460,7 @@ def instagram_conversations(background_tasks:BackgroundTasks,db:Session=Depends(
     out=[]
     for c in rows:
         customer=customers.get(c.customer_id);count=counts.get(c.id,(c.id,0,0));last=lasts.get(count[2]);unread,latest_in=incoming.get(c.id,(0,0))
-        out.append({'manager_id':owners.get(c.lead_id),'manager_name':names.get(owners.get(c.lead_id)), 'can_reply':user.role=='admin' or owners.get(c.lead_id) in (None,user.id),'id':c.id,'channel':'whatsapp' if c.account_id.startswith('wa:') else 'instagram','customer_name':customer.name if customer else 'Клиент','sender_id':c.sender_id,'city_id':c.city_id,'lead_id':c.lead_id,'last_message':last.text or 'Вложение' if last else '', 'last_direction':last.direction if last else '', 'last_at':last.created_at.isoformat() if last else None,
+        out.append({'manager_id':owners.get(c.lead_id),'manager_name':names.get(owners.get(c.lead_id)), 'can_reply':user.role=='admin' or owners.get(c.lead_id) in (None,user.id),'id':c.id,'channel':'whatsapp' if c.account_id.startswith('wa:') else 'instagram','customer_name':customer.name if customer else 'Клиент','sender_id':c.sender_id,'city_id':c.city_id,'lead_id':c.lead_id,'last_message':('Вложение' if last.text==features.LEGACY_WHATSAPP_ATTACHMENT else last.text or 'Вложение') if last else '', 'last_direction':last.direction if last else '', 'last_at':last.created_at.isoformat() if last else None,
                     'message_count':count[1],'unread_count':unread,'last_message_id':last.id if last else 0,'last_incoming_id':latest_in})
     return sorted(out,key=lambda c:c['last_message_id'],reverse=True)
 
@@ -503,7 +503,7 @@ def conversation_messages(conversation_id:int,before_id:int=0,db:Session=Depends
     rows=list(reversed(list(db.scalars(query.order_by(InstagramMessage.id.desc()).limit(200)))))
     assets={}
     for a in db.scalars(select(features.Asset).where(features.Asset.message_id.in_([r.id for r in rows]))): assets.setdefault(a.message_id,[]).append(features.media_out(a,user))
-    return [{'id':r.id,'direction':r.direction,'text':r.text,'created_at':r.created_at.isoformat(),'attachments':assets.get(r.id,[])} for r in rows]
+    return [{'id':r.id,'direction':r.direction,'text':features.message_display_text(r.text,bool(assets.get(r.id))),'created_at':r.created_at.isoformat(),'attachments':assets.get(r.id,[])} for r in rows]
 
 class ReplyIn(BaseModel): text:str=Field(min_length=1,max_length=2000)
 @app.post('/api/instagram/conversations/{conversation_id}/reply')
@@ -603,7 +603,10 @@ def ingest_whatsapp(db,data:WhatsAppEvent):
         db.add(conv);db.flush()
     msg=InstagramMessage(conversation_id=conv.id,external_id=external,direction=data.direction,text=data.text)
     db.add(msg);db.flush()
-    features.attach_incoming(db,msg,conv.lead_id,[{'asset_id':data.asset_id}] if data.asset_id else data.attachments)
+    attached=features.attach_incoming(db,msg,conv.lead_id,[{'asset_id':data.asset_id}] if data.asset_id else data.attachments)
+    if data.attachments and not attached:
+        caption='' if msg.text==features.LEGACY_WHATSAPP_ATTACHMENT else msg.text
+        msg.text='\n\n'.join(filter(None,[caption,features.MISSING_WHATSAPP_ATTACHMENT]))[:10000]
     db.commit();return True
 
 @app.post('/api/internal/whatsapp/events')

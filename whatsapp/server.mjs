@@ -3,8 +3,9 @@ import crypto from 'node:crypto';
 import pg from 'pg';
 import pino from 'pino';
 import QRCode from 'qrcode';
-import makeWASocket,{initAuthCreds,BufferJSON,proto,DisconnectReason,jidNormalizedUser,downloadMediaMessage,normalizeMessageContent} from '@whiskeysockets/baileys';
+import makeWASocket,{initAuthCreds,BufferJSON,proto,DisconnectReason,jidNormalizedUser,downloadMediaMessage} from '@whiskeysockets/baileys';
 import {toEvent,hasSavedSession} from './events.mjs';
+import {attachMedia} from './media.mjs';
 
 const secret=process.env.WA_BRIDGE_SECRET;
 if(!secret||!process.env.SECRET_KEY)throw Error('Bridge configuration missing');
@@ -52,17 +53,7 @@ async function connect(){
   s.ev.on('messages.upsert',async({messages,type})=>{
    if(type!=='notify'||socket!==s)return;
    try{for(const m of messages){const event=toEvent(m,account);if(event){
-     const body=normalizeMessageContent(m.message),media=body?.imageMessage||body?.videoMessage||body?.audioMessage||body?.documentMessage;
-     if(media){
-      try{
-       if(Number(media.fileLength||0)>16*1024*1024)throw Error('Too large');
-       const stream=await downloadMediaMessage(m,'stream',{}, {logger:pino({level:'silent'}),reuploadRequest:s.updateMediaMessage});
-       const chunks=[];let size=0;
-       for await(const chunk of stream){size+=chunk.length;if(size>16*1024*1024){stream.destroy();throw Error('Too large');}chunks.push(chunk);}
-       event.attachments=[{data:Buffer.concat(chunks).toString('base64'),mime:media.mimetype||'application/octet-stream',name:media.fileName||'Вложение'}];
-       if(event.text.startsWith('[Вложение'))event.text='';
-      }catch{event.text=(event.text.startsWith('[Вложение')?'':event.text)+' [Файл недоступен или больше 16 МБ — откройте WhatsApp]';}
-     }
+     await attachMedia(event,m,message=>downloadMediaMessage(message,'stream',{}, {logger:pino({level:'silent'}),reuploadRequest:s.updateMediaMessage}),failure=>console.warn('WhatsApp media unavailable:',failure.kind,failure.reason));
      await queue(event);
     }}}
    catch{console.error('WhatsApp incoming event storage failed');process.exit(1);}

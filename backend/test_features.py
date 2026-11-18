@@ -39,6 +39,28 @@ class FeaturesTests(unittest.TestCase):
         rows=self.client.get('/api/inbox/conversations/1/messages',headers=h).json()
         self.assertEqual(len(rows[-1]['attachments']),1)
         self.assertEqual(self.client.post('/api/inbox/conversations/1/media',json={'asset_id':a['id']},headers=h).status_code,409)
+
+    def test_legacy_whatsapp_placeholder_is_hidden_only_when_media_exists(self):
+        with m.SessionLocal() as db:
+            for mid,text,data,mime in [('voice',f.LEGACY_WHATSAPP_ATTACHMENT,b'OggSvoice','audio/ogg; codecs=opus'),('missing',f.LEGACY_WHATSAPP_ATTACHMENT,None,''),('sticker','',b'RIFF0000WEBPsticker','image/webp'),('caption','Размер M',b'\xff\xd8\xffphoto','image/jpeg')]:
+                attachments=[{'data':base64.b64encode(data).decode(),'mime':mime,'name':mid}] if data else []
+                m.ingest_whatsapp(db,m.WhatsAppEvent(account='77020000000',sender='77010000000@s.whatsapp.net',mid=mid,text=text,attachments=attachments))
+        h=self.login();rows=self.client.get('/api/inbox/conversations/1/messages',headers=h).json()
+        self.assertEqual(rows[0]['text'],'');self.assertEqual(rows[0]['attachments'][0]['mime'],'audio/ogg')
+        self.assertEqual(rows[1]['text'],f.MISSING_WHATSAPP_ATTACHMENT);self.assertEqual(rows[1]['attachments'],[])
+        self.assertEqual(rows[2]['text'],'');self.assertEqual(rows[2]['attachments'][0]['mime'],'image/webp')
+        self.assertEqual(rows[3]['text'],'Размер M')
+        with m.SessionLocal() as db:
+            self.assertEqual(db.get(m.InstagramMessage,1).text,f.LEGACY_WHATSAPP_ATTACHMENT)
+            m.ingest_whatsapp(db,m.WhatsAppEvent(account='77020000000',sender='77010000000@s.whatsapp.net',mid='legacy-last',text=f.LEGACY_WHATSAPP_ATTACHMENT))
+        self.assertEqual(self.client.get('/api/inbox/conversations',headers=h).json()[0]['last_message'],'Вложение')
+
+    def test_whatsapp_rejected_file_still_has_a_readable_message(self):
+        with m.SessionLocal() as db:
+            m.ingest_whatsapp(db,m.WhatsAppEvent(account='77020000000',sender='77010000000@s.whatsapp.net',mid='bad-file',text='Подпись',attachments=[{'data':base64.b64encode(b'not a jpeg').decode(),'mime':'image/jpeg'}]))
+        rows=self.client.get('/api/inbox/conversations/1/messages',headers=self.login()).json()
+        self.assertEqual(rows[0]['text'],'Подпись\n\n'+f.MISSING_WHATSAPP_ATTACHMENT)
+        self.assertEqual(rows[0]['attachments'],[])
     def test_unread_and_analytics(self):
         self.post(self.payload());h=self.login()
         self.client.post('/api/inbox/conversations/1/read',json={'last_message_id':1},headers=h)
