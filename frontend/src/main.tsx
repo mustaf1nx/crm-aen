@@ -10,10 +10,10 @@ import './design.css';
 import './theme.css';
 import './refinements.css';
 import {ThemeToggle} from './theme';
-import {Workspace} from './workspace';
+import {Workspace,stages as STAGES} from './workspace';
+import './workflow.css';
 import {api,useInbox,ChatPanel,ChatWindow} from './messaging';
 type Obj=Record<string,any>;
-const STAGES=[{id:'new',label:'Новые',color:'#4c8bf5'},{id:'working',label:'В работе',color:'#e6a83a'},{id:'payment',label:'Ожидает оплаты',color:'#a67bfa'},{id:'success',label:'Успешно',color:'#2ebd85'},{id:'refusal',label:'Отказ',color:'#ee6b73'}];
 function CustomerChannel({customer,leads}:{customer:Obj,leads:Obj[]}){
  const sources=new Set(leads.filter(l=>l.customer_id===customer.id).map(l=>l.source));
  const note=customer.notes||'';

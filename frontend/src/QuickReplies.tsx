@@ -1,0 +1,19 @@
+import {useEffect,useRef,useState} from 'react';
+import {createPortal} from 'react-dom';
+import {api} from './messaging';
+type Reply={id:number;title:string;text:string};
+const defaults=[{id:-1,title:'Приветствие',text:'Здравствуйте! Какой размер и цвет вас интересует?'},{id:-2,title:'Проверить наличие',text:'Сейчас проверю наличие и отправлю фото товара.'},{id:-3,title:'Чек об оплате',text:'Спасибо за заказ! Пришлите, пожалуйста, чек об оплате.'},{id:-4,title:'Доставка',text:'Подскажите город и удобный способ получения: доставка или самовывоз.'}];
+function Editor({rows,close,refresh}:{rows:Reply[];close:()=>void;refresh:()=>Promise<void>}){
+ const dialog=useRef<HTMLDialogElement>(null),[id,setId]=useState<number|null>(null),[title,setTitle]=useState(''),[text,setText]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ useEffect(()=>{dialog.current?.showModal();return()=>dialog.current?.close()},[]);
+ const reset=()=>{setId(null);setTitle('');setText('')};
+ const save=async(e:React.FormEvent)=>{e.preventDefault();if(busy)return;setBusy(true);setError('');try{await api(id?`/quick-replies/${id}`:'/quick-replies',id?'PUT':'POST',{title,text});reset();await refresh()}catch(e:any){setError(e.message)}finally{setBusy(false)}};
+ const remove=async(r:Reply)=>{if(!window.confirm(`Удалить быстрый ответ «${r.title}»?`))return;setBusy(true);try{await api(`/quick-replies/${r.id}`,'DELETE');if(id===r.id)reset();await refresh()}catch(e:any){setError(e.message)}finally{setBusy(false)}};
+ return createPortal(<dialog ref={dialog} className="quick-editor" onCancel={close}><div className="dialog-head"><h2>Мои быстрые ответы</h2><button type="button" className="iconbtn" onClick={close} aria-label="Закрыть быстрые ответы">✕</button></div><div className="saved-replies">{rows.map(r=><article key={r.id}><button type="button" disabled={busy} onClick={()=>{setId(r.id);setTitle(r.title);setText(r.text)}}><b>{r.title}</b><span>{r.text}</span></button><button type="button" className="text-link" disabled={busy} onClick={()=>void remove(r)}>Удалить</button></article>)}{!rows.length&&<p>Сохраните ответы, которые часто отправляете клиентам.</p>}</div><form onSubmit={save}><label className="field"><span>Название</span><input autoFocus required maxLength={80} value={title} onChange={e=>setTitle(e.target.value)}/></label><label className="field"><span>Текст ответа</span><textarea required maxLength={2000} rows={4} value={text} onChange={e=>setText(e.target.value)}/></label>{error&&<div className="error" role="alert">{error}</div>}<button className="primary" disabled={busy||!title.trim()||!text.trim()}>{busy?'Сохраняем…':id?'Сохранить изменения':'Добавить ответ'}</button>{id&&<button type="button" className="text-link" onClick={reset}>Новый ответ</button>}</form></dialog>,document.body)
+}
+export function QuickReplies({onSelect,disabled}:{onSelect:(text:string)=>void;disabled:boolean}){
+ const [rows,setRows]=useState<Reply[]>([]),[open,setOpen]=useState(false),[error,setError]=useState('');
+ const refresh=async()=>{try{setRows(await api('/quick-replies'));setError('')}catch(e:any){setError(e.message)}};
+ useEffect(()=>{void refresh()},[]);
+ return <><select disabled={disabled} aria-label="Быстрый ответ" value="" onChange={e=>{const r=[...rows,...defaults].find(r=>String(r.id)===e.target.value);if(r)onSelect(r.text)}}><option value="">Быстрые ответы…</option><optgroup label="Мои ответы">{rows.map(r=><option key={r.id} value={r.id}>{r.title}</option>)}</optgroup><optgroup label="Стандартные">{defaults.map(r=><option key={r.id} value={r.id}>{r.title}</option>)}</optgroup></select><button type="button" className="secondary" disabled={disabled} onClick={()=>setOpen(true)}>＋ Свой ответ</button>{error&&<span role="alert">{error}</span>}{open&&<Editor rows={rows} close={()=>setOpen(false)} refresh={refresh}/>}</>
+}

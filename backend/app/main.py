@@ -225,7 +225,8 @@ def leads(db:Session=Depends(get_db),user:User=Depends(current_user)):
     rows=list(db.scalars(q));counts={}
     customer_cache={c.id:c for c in db.scalars(select(Customer).where(Customer.id.in_([l.customer_id for l in rows])))}
     for lid,purpose,count in db.execute(select(features.Asset.lead_id,features.Asset.purpose,func.count()).where(features.Asset.lead_id.in_([l.id for l in rows]),features.Asset.purpose!='chat').group_by(features.Asset.lead_id,features.Asset.purpose)): counts[(lid,purpose)]=count
-    return [{**lead_out(x,db),**({'notes':None} if user.role!='admin' and x.manager_id not in (None,user.id) else {}),'receipt_count':counts.get((x.id,'receipt'),0),'product_count':counts.get((x.id,'product'),0)} for x in rows]
+    tasks=workflow.task_summaries(db,rows,user)
+    return [{**lead_out(x,db),**tasks.get(x.id,{'task_count':0,'next_task':None}),**({'notes':None} if user.role!='admin' and x.manager_id not in (None,user.id) else {}),'receipt_count':counts.get((x.id,'receipt'),0),'product_count':counts.get((x.id,'product'),0)} for x in rows]
 def lead_out(x,db):
     customer=db.get(Customer,x.customer_id)
     return {'id':x.id,'customer_id':x.customer_id,'customer_name':customer.name if customer else '—','city_id':x.city_id,'manager_id':x.manager_id,'stage':x.stage,'source':x.source,'notes':x.notes,'refusal_reason':x.refusal_reason,'created_at':x.created_at.isoformat()}
@@ -244,7 +245,7 @@ def update_stage(lead_id:int,data:StageIn,db:Session=Depends(get_db),user:User=D
     obj=db.get(Lead,lead_id)
     if not obj:raise HTTPException(404,'Лид не найден')
     conversation_access(db,obj.id,user)
-    if data.stage not in ('new','working','payment','success','refusal'):raise HTTPException(400,'Недопустимый этап')
+    if data.stage not in ('new','working','fitting','payment','success','refusal'):raise HTTPException(400,'Недопустимый этап')
     if data.stage=='refusal' and not (data.refusal_reason or '').strip():raise HTTPException(400,'Укажите причину отказа')
     old=obj.stage;obj.stage=data.stage;obj.refusal_reason=data.refusal_reason if data.stage=='refusal' else None
     log(db,user,'lead.stage',f'{lead_id}: {old} -> {data.stage}');db.commit();return lead_out(obj,db)
@@ -328,7 +329,7 @@ def lead_activity(lead_id:int,db:Session=Depends(get_db),user:User=Depends(curre
     if not lead:raise HTTPException(404,'Лид не найден')
     conversation_access(db,lead.id,user)
     rows=db.execute(select(Audit,User.full_name).join(User,User.id==Audit.actor_id).where(
-        Audit.action.in_(['lead.stage','lead.update','lead.comment','lead.file','lead.assign','lead.transfer']),Audit.detail.startswith(f'{lead_id}: ')
+        Audit.action.in_(['lead.stage','lead.update','lead.comment','lead.file','lead.assign','lead.transfer','lead.task']),Audit.detail.startswith(f'{lead_id}: ')
     ).order_by(Audit.id.desc()).limit(200)).all()
     return [{'id':a.id,'action':a.action,'text':a.detail.split(': ',1)[1],'actor':name,'created_at':a.created_at.isoformat()} for a,name in rows]
 
@@ -615,6 +616,7 @@ async def whatsapp_event(request:Request,data:WhatsAppEvent,db:Session=Depends(g
 
 from . import features
 from . import ai
+from . import workflow
 
 # Railway serves the built frontend from the same origin as the API.
 if os.environ.get('STATIC_DIR'):

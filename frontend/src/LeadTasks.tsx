@@ -1,0 +1,11 @@
+import {useEffect,useState} from 'react';
+import {api} from './messaging';
+type Task={id:number;title:string;due_at:string|null;done:boolean};
+export function LeadTasks({leadId,onSaved}:{leadId:number;onSaved:()=>Promise<void>}){
+ const [rows,setRows]=useState<Task[]>([]),[title,setTitle]=useState(''),[due,setDue]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ useEffect(()=>{let alive=true;const refresh=()=>api(`/leads/${leadId}/tasks`).then(r=>{if(alive)setRows(r)}).catch(e=>{if(alive)setError(e.message)});void refresh();window.addEventListener('aen-change',refresh);return()=>{alive=false;window.removeEventListener('aen-change',refresh)}},[leadId]);
+ const refresh=async()=>{setRows(await api(`/leads/${leadId}/tasks`));await onSaved()};
+ const add=async(e:React.FormEvent)=>{e.preventDefault();if(busy||!title.trim())return;setBusy(true);setError('');try{await api(`/leads/${leadId}/tasks`,'POST',{title:title.trim(),due_at:due?new Date(due).toISOString():null});setTitle('');setDue('');await refresh()}catch(e:any){setError(e.message)}finally{setBusy(false)}};
+ const toggle=async(t:Task)=>{setBusy(true);setError('');try{await api(`/leads/${leadId}/tasks/${t.id}`,'PATCH',{done:!t.done});await refresh()}catch(e:any){setError(e.message)}finally{setBusy(false)}};
+ return <section className="lead-tasks"><h3>Задачи <span>{rows.filter(t=>!t.done).length}</span></h3><div className="task-list">{rows.map(t=><label key={t.id} className={'task-row '+(t.done?'task-done':'')}><input type="checkbox" checked={t.done} disabled={busy} onChange={()=>void toggle(t)}/><span>{t.title}{t.due_at&&<time className={!t.done&&Date.parse(t.due_at)<Date.now()?'overdue':''}>{new Date(t.due_at).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</time>}</span></label>)}</div><form onSubmit={add}><input aria-label="Новая задача" placeholder="Например, отправить фото размера M" maxLength={300} required value={title} onChange={e=>setTitle(e.target.value)}/><label className="field"><span>Срок · необязательно</span><input type="datetime-local" aria-label="Срок задачи" value={due} onChange={e=>setDue(e.target.value)}/></label><button className="secondary" disabled={busy||!title.trim()}>Добавить задачу</button></form>{error&&<div className="error" role="alert">{error}</div>}</section>
+}

@@ -1,0 +1,93 @@
+/* Bound the inbox once, then let the message list and customer drawer scroll. */
+main.messages-page{display:flex;flex-direction:column;height:100dvh;min-height:760px;overflow:auto}
+.messages-page>header{flex:none;margin-bottom:14px;padding-bottom:14px}
+.messages-page>.sales-workspace{flex:1;min-height:0;display:flex;flex-direction:column}
+.messages-page .sales-workspace>:not(.messenger-shell){flex:none}
+.messages-page .workspace-filter-panel{max-height:38dvh;overflow:auto;padding:3px}
+.messages-page .workspace-overview{margin-bottom:12px}
+.messages-page .filter-presets{margin-bottom:0}
+.messages-page .messenger-shell{flex:1 0 390px;min-height:390px;height:auto;grid-template-rows:minmax(0,1fr);margin-top:12px}
+.messages-page .conversation-list{min-height:0;max-height:none;overflow:auto}
+.messages-page .messenger-detail{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.messenger-detail>.deal-heading,.messenger-detail>.stage-track{flex:none}
+.messenger-detail .deal-heading{padding:12px 18px}
+.messenger-detail .stage-track{padding:8px 12px}
+.messenger-detail .deal-body,.deal-dialog .deal-body{position:relative;display:grid;grid-template-columns:minmax(0,1fr) 300px;grid-template-rows:minmax(0,1fr);flex:1;height:auto;min-height:0;overflow:hidden}
+.messenger-detail .deal-body.details-closed,.deal-dialog .deal-body.details-closed{grid-template-columns:minmax(0,1fr)}
+.deal-body.details-closed>.deal-sidebar{display:none}
+.deal-body>.deal-conversation{grid-column:1;grid-row:1;display:flex;flex-direction:column;height:100%;min-height:0;overflow:hidden}
+.deal-body>.deal-sidebar{grid-column:2;grid-row:1;min-height:0;height:100%;max-height:none;overflow:auto;padding:16px}
+.deal-conversation>.view-tabs{flex:none;flex-wrap:wrap;padding:6px 10px;gap:2px}
+.deal-conversation>.view-tabs button{font-size:12px;padding:8px 10px}
+.deal-conversation>.activity{flex:1;min-height:0;max-height:none;overflow:auto}
+.messenger-detail .chat-content,.deal-dialog .chat-content{flex:1;min-height:0;overflow:hidden;padding:10px 14px}
+.messenger-detail .chat-messages,.deal-dialog .chat-messages{height:auto;max-height:none;min-height:60px;flex:1 1 0;overflow-y:auto;overscroll-behavior:contain;scroll-behavior:auto}
+.chat-messages>.bubble{flex-shrink:0}
+.chat-content>:not(.chat-messages){flex-shrink:0}
+.chat-content>.compose-access{min-width:0;max-height:55%;overflow:auto}
+.chat-owner{font-size:11px;padding:6px 0}
+.chat-content .quick-replies{gap:6px;padding:6px 0}
+.chat-content .quick-replies :is(button,select,.file-button){padding:7px 9px;font-size:11px;max-width:100%;min-height:32px}
+.messages-page .workspace-actions{gap:6px}
+.messages-page .workspace-actions button{padding:9px 10px;font-size:11px}
+.chat-content .chat-compose{flex-wrap:nowrap;gap:8px;margin-top:4px}
+.chat-content .chat-compose textarea{min-height:58px;height:58px;max-height:100px;resize:vertical;flex:1 1 0;width:0;font-size:13px;padding:10px}
+.chat-content .chat-compose .primary{padding:10px;font-size:12px;flex:none}
+.messages-page .welcome-chat{min-height:0;height:100%;flex:1}
+.deal-dialog[open]{height:min(860px,94dvh);max-height:94dvh;overflow:hidden}
+.deal-dialog-inner{height:100%;min-height:0;display:flex;flex-direction:column}
+.deal-dialog-inner>.deal-heading,.deal-dialog-inner>.stage-track{flex:none}
+.drawer-close{display:none}
+.sales-workspace .board{grid-template-columns:repeat(6,minmax(0,1fr))}
+.card-task{margin:10px 0;padding:9px 10px;border-radius:9px;background:#7f9d8d18;border:1px solid #7f9d8d35;font-size:12px;line-height:1.5}
+.card-task b{display:block;font-weight:500;overflow-wrap:anywhere}
+.card-task small{display:block;font-size:10px;opacity:.8;margin-top:4px}
+.overdue{color:#b65e44}
+[data-theme=dark] .overdue{color:#e9ab92}
+.lead-tasks{padding-bottom:18px;margin-bottom:18px;border-bottom:1px solid var(--border)}
+.lead-tasks h3{font-size:15px;display:flex;justify-content:space-between;margin:0 0 12px}
+.lead-tasks h3 span{font-size:12px;padding:2px 7px;border-radius:7px;background:#7f9d8d24}
+.task-list{display:grid;gap:8px;margin-bottom:14px}
+.task-row{display:flex;gap:9px;align-items:flex-start;font-size:13px;line-height:1.5;overflow-wrap:anywhere;cursor:pointer}
+.task-row input{width:16px;height:16px;flex:none;margin-top:3px;accent-color:var(--accent)}
+.task-row time{display:block;font-size:11px;margin-top:3px}
+.task-done>span{text-decoration:line-through;opacity:.5}
+.lead-tasks form{display:grid;gap:10px}
+.lead-tasks form>input{width:100%;min-width:0;padding:10px;border:1px solid var(--border);border-radius:9px;font-size:12px}
+.lead-tasks .field{margin:0}
+.quick-editor{width:min(600px,calc(100vw - 24px));max-height:88dvh;padding:24px;border:1px solid var(--border);border-radius:18px;color:inherit;background:#fff;overflow:auto}
+.quick-editor::backdrop{background:#0c1725a8}
+.quick-editor h2{font-size:19px;margin:0}
+.quick-editor .dialog-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.saved-replies{display:grid;gap:8px;margin-bottom:18px;max-height:26dvh;overflow:auto}
+.saved-replies article{display:flex;gap:8px;border:1px solid var(--border);border-radius:10px;padding:10px}
+.saved-replies article>button:first-child{border:0;background:transparent;color:inherit;text-align:left;flex:1;min-width:0;padding:0}
+.saved-replies article span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:12px;opacity:.7;margin-top:4px;overflow-wrap:anywhere}
+.saved-replies .text-link{font-size:11px}
+.quick-editor form>.text-link{margin-left:15px}
+[data-theme=dark] .quick-editor{background:#23262a}
+@media(max-width:1400px) and (min-width:801px){
+ .deal-body.details-open>.deal-sidebar{position:absolute;inset:0 0 0 auto;width:300px;max-width:100%;z-index:3;box-shadow:-8px 0 24px #0002;grid-column:auto;grid-row:auto}
+ .messenger-detail .deal-body.details-open,.deal-dialog .deal-body.details-open{grid-template-columns:minmax(0,1fr)}
+ .drawer-close{display:flex;margin:0 0 14px auto}
+}
+@media(max-width:1150px) and (min-width:801px){.sales-workspace .board{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:800px){
+ main.messages-page{height:auto;min-height:0;overflow:visible}
+ .messages-page .messenger-shell{height:78dvh;min-height:540px;flex:none;grid-template-columns:minmax(0,1fr)}
+ .messages-page .messenger-detail{display:none}
+ .messages-page .messenger-shell.has-selection .messenger-detail{display:flex}
+ .messages-page .messenger-shell.has-selection{position:fixed;inset:0;z-index:20;height:100dvh;min-height:0;margin:0;border-radius:0}
+ html:has(.messages-page .messenger-shell.has-selection){overflow:hidden}
+ .deal-body.details-open>.deal-sidebar{position:absolute;inset:0;width:100%;max-width:100%;z-index:3;grid-column:auto;grid-row:auto;box-shadow:none}
+ .messenger-detail .deal-body.details-open,.deal-dialog .deal-body.details-open{grid-template-columns:minmax(0,1fr)}
+ .drawer-close{display:flex;margin:0 0 14px auto}
+ .deal-dialog .deal-heading{padding:12px}
+ .stage-track{padding:8px}
+ .stage-track span{font-size:9px}
+ .deal-conversation>.view-tabs button{font-size:10px;padding:8px 6px}
+ .chat-content .chat-compose textarea{min-height:58px;flex:1 1 0}
+ .sales-workspace .board{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .quick-editor{padding:18px}
+}
+@media(max-width:480px){.sales-workspace .board{grid-template-columns:minmax(0,1fr)}}

@@ -2,10 +2,10 @@ import {useEffect,useRef,useState} from 'react';
 import {api} from './messaging';
 import {DateFilter,businessDate} from './DateFilters';
 type Row=Record<string,any>;
-const labels:Record<string,string>={'ai.request':'Запрос к ИИ','ai.draft':'Черновик ИИ','ai.test':'Проверка ИИ','auth.login':'Вход в CRM','user.create':'Добавлен сотрудник','customer.create':'Создан клиент','lead.create':'Создан лид','lead.stage':'Изменён этап','lead.update':'Изменена карточка','lead.assign':'Назначен ответственный','lead.transfer':'Передан лид','lead.comment':'Добавлен комментарий','lead.file':'Прикреплён файл','order.create':'Создан заказ','order.status':'Изменён статус заказа','message.send':'Отправлено сообщение','message.media':'Отправлено вложение'};
-const stages:Record<string,string>={new:'Новые',working:'В работе',payment:'Ожидает оплаты',success:'Успешно',refusal:'Отказ',pending:'Ожидает оплаты',paid:'Оплачен',cancelled:'Отменён'};
+const labels:Record<string,string>={'ai.request':'Запрос к ИИ','ai.draft':'Черновик ИИ','ai.test':'Проверка ИИ','auth.login':'Вход в CRM','user.create':'Добавлен сотрудник','customer.create':'Создан клиент','lead.create':'Создан лид','lead.stage':'Изменён этап','lead.update':'Изменена карточка','lead.assign':'Назначен ответственный','lead.transfer':'Передан лид','lead.comment':'Добавлен комментарий','lead.task':'Задача по сделке','lead.file':'Прикреплён файл','order.create':'Создан заказ','order.status':'Изменён статус заказа','message.send':'Отправлено сообщение','message.media':'Отправлено вложение'};
+const stages:Record<string,string>={new:'Новые',working:'В работе',fitting:'Примерка',payment:'Ожидает оплаты',success:'Успешно',refusal:'Отказ',pending:'Ожидает оплаты',paid:'Оплачен',cancelled:'Отменён'};
 function detail(row:Row){
- if(row.action==='lead.stage'||row.action==='order.status')return row.detail.replace(/\b(new|working|payment|success|refusal|pending|paid|cancelled)\b/g,(v:string)=>stages[v]);
+ if(row.action==='lead.stage'||row.action==='order.status')return row.detail.replace(/\b(new|working|fitting|payment|success|refusal|pending|paid|cancelled)\b/g,(v:string)=>stages[v]);
  if(row.action.endsWith('.create'))return `№ ${row.detail}`;
  return row.detail;
 }

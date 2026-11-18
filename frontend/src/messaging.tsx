@@ -1,7 +1,8 @@
+import {QuickReplies} from './QuickReplies';
 import {MediaView,uploadFile,accept,Media} from './enhancements';
 import {useCallback,useEffect,useLayoutEffect,useRef,useState} from 'react';
 
-export type Conversation={can_reply?:boolean;manager_id?:number;manager_name?:string;id:number;channel?:string;lead_id:number;customer_name:string;city_id:number;last_message:string;message_count:number;unread_count:number;last_incoming_id:number;last_direction?:string;last_at?:string};
+export type Conversation={can_reply?:boolean;manager_id?:number;manager_name?:string;id:number;channel?:string;lead_id:number;customer_name:string;city_id:number;last_message:string;message_count:number;unread_count:number;last_incoming_id:number;last_direction?:string;last_message_id?:number;last_at?:string};
 type Message={id:number;direction:string;text:string;created_at:string;attachments?:Media[]};
 export const api=async(path:string,method='GET',body?:Record<string,any>)=>{
  const token=sessionStorage.getItem('aen_token');
@@ -18,9 +19,11 @@ export function useInbox(token:string){
  const [notifications,setNotifications]=useState(typeof Notification!=='undefined'?Notification.permission:'unsupported');
  const seen=useRef<Map<number,number>|null>(null);
  const generation=useRef(0);
- const pending=useRef(false);
+ const pending=useRef(false),queued=useRef(false);
+ const refreshLatest=useRef<()=>Promise<void>>(async()=>{});
  const refresh=useCallback(async()=>{
-  if(!token||pending.current)return;
+  if(!token)return;
+  if(pending.current){queued.current=true;return;}
   pending.current=true;const gen=generation.current;
   try{
    const list:Conversation[]=await api('/inbox/conversations');
@@ -35,8 +38,9 @@ export function useInbox(token:string){
     }
    }
   }catch(e:any){if(gen===generation.current)setError(e.message);}
-  finally{pending.current=false;}
+  finally{pending.current=false;if(queued.current){queued.current=false;void refreshLatest.current();}}
  },[token]);
+ refreshLatest.current=refresh;
  useEffect(()=>{
   generation.current++;seen.current=null;setConversations([]);setNotice(null);
   if(!token)return;
@@ -72,13 +76,13 @@ export function ChatPanel({conversation,onRead}:{conversation:Conversation;onRea
  const bottom=useRef<HTMLDivElement>(null);
  const restoreScroll=useRef<{height:number;top:number}|null>(null);
  const scrollBox=useRef<HTMLDivElement>(null);const atBottom=useRef(true);
- useEffect(()=>{const loaded=()=>{if(atBottom.current)bottom.current?.scrollIntoView({block:'nearest'});};window.addEventListener('aen-media-ready',loaded);return()=>window.removeEventListener('aen-media-ready',loaded);},[]);
+ useEffect(()=>{const loaded=()=>{if(atBottom.current)scrollBox.current?.scrollTo({top:scrollBox.current.scrollHeight});};window.addEventListener('aen-media-ready',loaded);return()=>window.removeEventListener('aen-media-ready',loaded);},[]);
  const refreshRef=useRef<()=>Promise<void>>(async()=>{});
  const onReadRef=useRef(onRead);onReadRef.current=onRead;
  useEffect(()=>{
-  let alive=true,busy=false,lastRead=0,initial=true;
+  let alive=true,busy=false,queued=false,lastRead=0,initial=true;
   const refresh=async()=>{
-   if(busy)return;busy=true;
+   if(!alive)return;if(busy){queued=true;return;}busy=true;
    try{
     const rows:Message[]=await api(`/inbox/conversations/${conversation.id}/messages`);
     if(!alive)return;
@@ -88,8 +92,8 @@ export function ChatPanel({conversation,onRead}:{conversation:Conversation;onRea
      await api(`/inbox/conversations/${conversation.id}/read`,'POST',{last_message_id:latest});
      lastRead=latest;if(alive)await onReadRef.current();
     }
-   }catch(e:any){if(alive){setError(e.message);setLoading(false);}}
-   finally{busy=false;}
+   }catch(e:any){if(alive){if(e.status===403)setMessages([]);setError(e.message);setLoading(false);}}
+   finally{busy=false;if(queued&&alive){queued=false;void refresh();}}
   };
   refreshRef.current=refresh;void refresh();
   const interval=window.setInterval(refresh,30000);
@@ -98,19 +102,19 @@ export function ChatPanel({conversation,onRead}:{conversation:Conversation;onRea
   return()=>{alive=false;window.clearInterval(interval);document.removeEventListener('visibilitychange',visible);window.removeEventListener('aen-change',visible);};
  },[conversation.id]);
  useLayoutEffect(()=>{const box=scrollBox.current,old=restoreScroll.current;if(box&&old){box.scrollTop=old.top+box.scrollHeight-old.height;restoreScroll.current=null;}},[messages]);
- useEffect(()=>{if(atBottom.current)bottom.current?.scrollIntoView({block:'nearest'});},[messages.length]);
+ useEffect(()=>{if(atBottom.current)scrollBox.current?.scrollTo({top:scrollBox.current.scrollHeight});},[messages.length]);
  const send=async(e:React.FormEvent)=>{
   e.preventDefault();if(conversation.can_reply===false||sending||(!reply.trim()&&!file))return;
   setSending(true);setError('');
   try{
    if(file){const asset=uploaded||await uploadFile(conversation.lead_id,file);setUploaded(asset);await api(`/inbox/conversations/${conversation.id}/media`,'POST',{asset_id:asset.id,text:''});setFile(null);setUploaded(null);}
    if(reply.trim())await api(`/inbox/conversations/${conversation.id}/reply`,'POST',{text:reply.trim()});
-   editReply('');unreadRef.current=false;setManualUnread(false);await refreshRef.current();await onReadRef.current();
+   atBottom.current=true;editReply('');unreadRef.current=false;setManualUnread(false);await refreshRef.current();await onReadRef.current();
   }
   catch(e:any){setError(e.message);}finally{setSending(false);}
  };
  return <div className="chat-content">
-  <div className="chat-tools"><button className="text-link" onClick={async()=>{try{unreadRef.current=true;await api(`/inbox/conversations/${conversation.id}/unread`,'POST',{});setManualUnread(true);await onReadRef.current();}catch(e:any){unreadRef.current=false;setError(e.message);}}}>{manualUnread?'Отмечен непрочитанным':'Отметить непрочитанным'}</button></div><p className="muted">Всего сообщений: {conversation.message_count} · {conversation.channel==='whatsapp'?'WhatsApp':'Instagram Direct'}</p>
+  <div className="chat-tools"><button className="text-link" onClick={async()=>{try{unreadRef.current=true;await api(`/inbox/conversations/${conversation.id}/unread`,'POST',{});setManualUnread(true);await onReadRef.current();}catch(e:any){unreadRef.current=false;setError(e.message);}}}>{manualUnread?'Отмечен непрочитанным':'Отметить непрочитанным'}</button></div><p className="muted">Всего сообщений: {conversation.message_count} · {conversation.channel==='whatsapp'?'WhatsApp':'Instagram'}</p>
   <div ref={scrollBox} onScroll={()=>{const el=scrollBox.current;if(el){const wasBottom=atBottom.current;atBottom.current=el.scrollHeight-el.scrollTop-el.clientHeight<70;if(!wasBottom&&atBottom.current)void refreshRef.current();}}} className="chat-messages" role="log" aria-label="Переписка">
    {more&&<button className="secondary" disabled={olderBusy} onClick={async()=>{setOlderBusy(true);try{const rows=await api(`/inbox/conversations/${conversation.id}/messages?before_id=${messages[0]?.id||0}`);atBottom.current=false;const box=scrollBox.current;if(box)restoreScroll.current={height:box.scrollHeight,top:box.scrollTop};merge(rows);setMore(rows.length===200);}catch(e:any){setError(e.message);}finally{setOlderBusy(false);}}}>{olderBusy?'Загрузка…':'Ранние сообщения'}</button>}
    {loading&&<p>Загрузка переписки…</p>}
@@ -119,7 +123,7 @@ export function ChatPanel({conversation,onRead}:{conversation:Conversation;onRea
    <div ref={bottom}/>
   </div>
   {error&&<div className="error" role="alert">{error}</div>}
-  <div className="chat-owner">{conversation.manager_name?`Ответственный: ${conversation.manager_name}`:"Общий список · первый ответ закрепит клиента за вами"}{conversation.can_reply===false&&<strong>Только просмотр · ответить может ответственный или администратор</strong>}</div><fieldset className="compose-access" disabled={conversation.can_reply===false}><div className="quick-replies"><button type="button" className="secondary" disabled={aiBusy||sending} onClick={makeDraft}>{aiBusy?'Готовлю ответ…':'✦ Предложить ответ'}</button><select aria-label="Быстрый ответ" value="" onChange={e=>editReply(e.target.value)}><option value="">Быстрые ответы…</option>{['Здравствуйте! Какой размер и цвет вас интересует?','Сейчас проверю наличие и отправлю фото товара.','Спасибо за заказ! Пришлите, пожалуйста, чек об оплате.','Подскажите город и удобный способ получения: доставка или самовывоз.'].map(t=><option key={t}>{t}</option>)}</select><label className="secondary file-button">＋ Фото / аудио / видео<input aria-label="Прикрепить файл в чат" type="file" accept={accept} disabled={sending} onChange={e=>{setFile(e.target.files?.[0]||null);setUploaded(null);e.target.value='';}}/></label></div>
+  <div className="chat-owner">{conversation.manager_name?`Ответственный: ${conversation.manager_name}`:"Общий список · первый ответ закрепит клиента за вами"}{conversation.can_reply===false&&<strong>Только просмотр · ответить может ответственный или администратор</strong>}</div><fieldset className="compose-access" disabled={conversation.can_reply===false}><div className="quick-replies"><button type="button" className="secondary" disabled={aiBusy||sending} onClick={makeDraft}>{aiBusy?'Готовлю ответ…':'✦ Предложить ответ'}</button><QuickReplies disabled={sending} onSelect={text=>editReply(reply.trim()?reply+"\n"+text:text)}/><label className="secondary file-button">＋ Фото / аудио / видео<input aria-label="Прикрепить файл в чат" type="file" accept={accept} disabled={sending} onChange={e=>{setFile(e.target.files?.[0]||null);setUploaded(null);e.target.value='';}}/></label></div>
   {file&&<div className="pending-file">{file.name} · {(file.size/1024/1024).toFixed(1)} МБ <button onClick={()=>{setFile(null);setUploaded(null);}} disabled={sending}>Убрать</button></div>}
   <>{aiDraft&&<div className="ai-draft"><strong>Черновик ИИ</strong><p>{aiDraft}</p><button type="button" className="secondary" disabled={sending||!!reply.trim()} onClick={()=>{editReply(aiDraft);setAiDraft('');}}>Вставить в ответ</button><button type="button" className="text-link" onClick={()=>setAiDraft('')}>Закрыть</button>{reply.trim()&&<small>Сначала сохраните или очистите свой текст ответа.</small>}</div>}</><form className="chat-compose" onSubmit={send}><textarea aria-label="Ответ клиенту" placeholder="Напишите сообщение… Ctrl+Enter — отправить" value={reply} maxLength={2000} onChange={e=>editReply(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();e.currentTarget.form?.requestSubmit();}}} disabled={sending}/><button className="primary" disabled={sending||loading||(!reply.trim()&&!file)}>{sending?'Отправка…':'Отправить'}</button></form></fieldset>
   {file&&<small className="composer-hint">До 16 МБ · Файл и текст отправляются отдельными сообщениями</small>}
