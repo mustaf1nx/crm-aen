@@ -1,5 +1,4 @@
 import {useState} from 'react';
-import {Moon,Sun} from 'lucide-react';
 
 function initialTheme(){
  try{const saved=localStorage.getItem('aen-theme');if(saved==='dark'||saved==='light')return saved;}catch{}
@@ -10,5 +9,5 @@ document.documentElement.dataset.theme=initialTheme();
 export function ThemeToggle(){
  const [theme,setTheme]=useState(document.documentElement.dataset.theme||'light');
  const toggle=()=>{const next=theme==='dark'?'light':'dark';document.documentElement.dataset.theme=next;setTheme(next);try{localStorage.setItem('aen-theme',next);}catch{}};
- return <button type="button" className="secondary theme-toggle" aria-label={theme==='dark'?'Включить светлую тему':'Включить тёмную тему'} title={theme==='dark'?'Светлая тема':'Тёмная тема'} onClick={toggle}>{theme==='dark'?<Sun size={18}/>:<Moon size={18}/>}<span>{theme==='dark'?'Светлая тема':'Тёмная тема'}</span></button>;
+ return <button type="button" role="switch" aria-checked={theme==='dark'} aria-label="Тёмная тема" title="Тёмная тема" onClick={toggle} style={{display:'inline-flex',alignItems:'center',width:44,height:26,minHeight:26,padding:3,border:'1px solid currentColor',borderRadius:16,background:theme==='dark'?'#28734d':'#616974',cursor:'pointer'}}><span aria-hidden="true" style={{width:18,height:18,borderRadius:'50%',background:'white',transform:theme==='dark'?'translateX(18px)':'none'}}/></button>;
 }
