@@ -136,6 +136,13 @@ class InstagramTests(unittest.TestCase):
         self.assertEqual(self.post(self.payload(account='unrelated')).status_code,200)
         self.assertEqual(self.count(m.Lead),0)
 
+    def test_accepts_configured_account_alias(self):
+        original=m.IG_ACCOUNT_ALIASES
+        m.IG_ACCOUNT_ALIASES=frozenset({'instagram-scoped-account'})
+        self.addCleanup(setattr,m,'IG_ACCOUNT_ALIASES',original)
+        self.assertEqual(self.post(self.payload(account='instagram-scoped-account')).status_code,200)
+        self.assertEqual(self.count(m.Lead),1)
+
     def test_logs_have_metadata_only(self):
         raw=self.payload()
         with self.assertLogs('uvicorn.error',level='INFO') as logs:
@@ -143,6 +150,15 @@ class InstagramTests(unittest.TestCase):
         output=' '.join(logs.output)
         self.assertIn('signature=mismatch',output)
         for private in ('test-app-secret','customer1','Привет','test-verify'):
+            self.assertNotIn(private,output)
+
+    def test_delivery_log_excludes_message_contents_and_ids(self):
+        raw=self.payload()
+        with self.assertLogs('uvicorn.error',level='INFO') as logs:
+            self.post(raw)
+        output=' '.join(logs.output)
+        self.assertIn('processed object=instagram entries=1 accepted=1',output)
+        for private in ('customer1','Привет','mid1','account1'):
             self.assertNotIn(private,output)
 
     def test_reply_with_mocked_meta(self):

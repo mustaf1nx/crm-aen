@@ -380,6 +380,7 @@ IG_VERIFY_TOKEN=os.environ.get('IG_VERIFY_TOKEN','')
 META_APP_SECRET=os.environ.get('META_APP_SECRET','')
 IG_ACCOUNT_ID=os.environ.get('IG_ACCOUNT_ID','')
 IG_PAGE_ID=os.environ.get('IG_PAGE_ID','')
+IG_ACCOUNT_ALIASES=frozenset(value.strip() for value in os.environ.get('IG_ACCOUNT_ALIASES','').split(',') if value.strip())
 IG_ACCESS_TOKEN=os.environ.get('IG_ACCESS_TOKEN','')
 IG_CITY_NAME=os.environ.get('IG_CITY_NAME','Семей')
 IG_GRAPH_VERSION=os.environ.get('IG_GRAPH_VERSION','v24.0')
@@ -426,18 +427,37 @@ async def instagram_webhook(request:Request,background_tasks:BackgroundTasks):
     try: payload=json.loads(raw)
     except (ValueError,UnicodeDecodeError): raise HTTPException(400,'Invalid JSON')
     if not isinstance(payload,dict): raise HTTPException(400,'Invalid JSON object')
-    if payload.get('object') not in ('instagram','page'): return {'ok':True}
+    webhook_object=payload.get('object')
+    if webhook_object not in ('instagram','page'):
+        logging.getLogger('uvicorn.error').info('Instagram webhook ignored object=%s',webhook_object)
+        return {'ok':True}
+    allowed_account_ids={value for value in (IG_ACCOUNT_ID,IG_PAGE_ID) if value}|IG_ACCOUNT_ALIASES
+    accepted=ignored=duplicates=0
     with SessionLocal() as db:
         for entry in payload.get('entry',[]):
             account_id=str(entry.get('id',''))
             for event in entry.get('messaging',[]):
                 message=event.get('message') or {}
-                if not message or message.get('is_echo'): continue
+                if not message:
+                    ignored+=1
+                    continue
+                if message.get('is_echo'):
+                    ignored+=1
+                    continue
                 sender=str((event.get('sender') or {}).get('id',''))
                 recipient=str((event.get('recipient') or {}).get('id',''))
-                if IG_ACCOUNT_ID and account_id not in (IG_ACCOUNT_ID,IG_PAGE_ID) and recipient not in (IG_ACCOUNT_ID,IG_PAGE_ID): continue
-                if sender in (IG_ACCOUNT_ID,IG_PAGE_ID): continue
-                ingest_instagram(db,IG_ACCOUNT_ID or account_id,sender,str(message.get('text') or ''),str(message.get('mid') or ''),[{'url':(a.get('payload') or {}).get('url',''),'mime':{'image':'image/jpeg','video':'video/mp4','audio':'audio/mpeg'}.get(a.get('type'),'application/octet-stream'),'name':a.get('type','Вложение')} for a in message.get('attachments',[])])
+                if allowed_account_ids and account_id not in allowed_account_ids and recipient not in allowed_account_ids:
+                    ignored+=1
+                    continue
+                if sender in allowed_account_ids:
+                    ignored+=1
+                    continue
+                stored=ingest_instagram(db,IG_ACCOUNT_ID or account_id,sender,str(message.get('text') or ''),str(message.get('mid') or ''),[{'url':(a.get('payload') or {}).get('url',''),'mime':{'image':'image/jpeg','video':'video/mp4','audio':'audio/mpeg'}.get(a.get('type'),'application/octet-stream'),'name':a.get('type','Вложение')} for a in message.get('attachments',[])])
+                if stored: accepted+=1
+                else: duplicates+=1
+    logging.getLogger('uvicorn.error').info(
+        'Instagram webhook processed object=%s entries=%d accepted=%d duplicates=%d ignored=%d',
+        webhook_object,len(payload.get('entry',[])),accepted,duplicates,ignored)
     background_tasks.add_task(features.enrich)
     return {'ok':True}
 
